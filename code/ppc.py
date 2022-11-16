@@ -93,15 +93,155 @@ def construct_2p_train(t2hr_dict, data):
     for user in tqdm.tqdm(data):
         items = data[user]
         for item in items:
-            hrs = t2hr_dict[item]
-            for hr in hrs:
+            try:
+                hrs = t2hr_dict[item]
+                hr = random.choice(hrs)
                 hrs2 = t2hr_dict[hr[0]]
-                for hr2 in hrs2:
-                    # TODO: random choice
-                    if (hr2[0], hr2[1], hr[1], user) not in ret:
-                        ret[(hr2[0], hr2[1], hr[1], user)] = set([item])
-                    else:
-                        ret[(hr2[0], hr2[1], hr[1], user)].add(item)
+                hr2 = random.choice(hrs2)
+                if (hr2[0], hr2[1], hr[1], user) not in ret:
+                    ret[(hr2[0], hr2[1], hr[1], user)] = set([item])
+                else:
+                    ret[(hr2[0], hr2[1], hr[1], user)].add(item)
+            except:
+                pass
+    return ret
+
+def construct_2p_test(t2hr_dict_train, t2hr_dict_test, data):
+    ret = {}
+    for user in tqdm.tqdm(data):
+        items = data[user]
+        for item in items:
+            try:
+                hrs = t2hr_dict_test[item]
+                hr = random.choice(hrs)
+                hrs2 = t2hr_dict_train[hr[0]]
+                hr2 = random.choice(hrs2)
+                if (hr2[0], hr2[1], hr[1], user) not in ret:
+                    ret[(hr2[0], hr2[1], hr[1], user)] = set([item])
+                else:
+                    ret[(hr2[0], hr2[1], hr[1], user)].add(item)
+            except:
+                pass
+    return ret
+
+def construct_3p_train(t2hr_dict, data):
+    ret = {}
+    for user in tqdm.tqdm(data):
+        items = data[user]
+        for item in items:
+            try:
+                hrs = t2hr_dict[item]
+                hr = random.choice(hrs)
+                hrs2 = t2hr_dict[hr[0]]
+                hr2 = random.choice(hrs2)
+                hrs3 = t2hr_dict[hr2[0]]
+                hr3 = random.choice(hrs3)
+                if (hr3[0], hr3[1], hr2[1], hr[1], user) not in ret:
+                    ret[(hr3[0], hr3[1], hr2[1], hr[1], user)] = set([item])
+                else:
+                    ret[(hr3[0], hr3[1], hr2[1], hr[1], user)].add(item)
+            except:
+                pass
+    return ret
+
+def construct_3p_test(t2hr_dict_train, t2hr_dict_test, data):
+    ret = {}
+    for user in tqdm.tqdm(data):
+        items = data[user]
+        for item in items:
+            try:
+                hrs = t2hr_dict_test[item]
+                hr = random.choice(hrs)
+                hrs2 = t2hr_dict_train[hr[0]]
+                hr2 = random.choice(hrs2)
+                hrs3 = t2hr_dict_train[hr2[0]]
+                hr3 = random.choice(hrs3)
+                if (hr3[0], hr3[1], hr2[1], hr[1], user) not in ret:
+                    ret[(hr3[0], hr3[1], hr2[1], hr[1], user)] = set([item])
+                else:
+                    ret[(hr3[0], hr3[1], hr2[1], hr[1], user)].add(item)
+            except:
+                pass
+    return ret
+
+def construct_2i_train(t2hr_dict, data):
+    ret = {}
+    for user in tqdm.tqdm(data):
+        items = data[user]
+        for item in items:
+            try:
+                hrs1 = t2hr_dict[item]
+                hr1 = random.choice(hrs1)
+                hrs2 = t2hr_dict[item]
+                hr2 = random.choice(hrs2)
+                assert hr1 != hr2
+                if (hr1[0], hr1[1], hr2[0], hr2[1], user) not in ret:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], user)] = set([item])
+                else:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], user)].add(item)
+            except:
+                pass
+    return ret
+
+def construct_2i_test(t2hr_dict_train, t2hr_dict_test, data):
+    ret = {}
+    for user in tqdm.tqdm(data):
+        items = data[user]
+        for item in items:
+            try:
+                hrs1 = t2hr_dict_test[item]
+                hr1 = random.choice(hrs1)
+                hrs2 = t2hr_dict_train[item]
+                hr2 = random.choice(hrs2)
+                assert hr1 != hr2
+                if (hr1[0], hr1[1], hr2[0], hr2[1], user) not in ret:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], user)] = set([item])
+                else:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], user)].add(item)
+            except:
+                pass
+    return ret
+
+def construct_3i_train(t2hr_dict, data):
+    ret = {}
+    for user in tqdm.tqdm(data):
+        items = data[user]
+        for item in items:
+            try:
+                hrs1 = t2hr_dict[item]
+                hr1 = random.choice(hrs1)
+                hrs2 = t2hr_dict[item]
+                hr2 = random.choice(hrs2)
+                hrs3 = t2hr_dict[item]
+                hr3 = random.choice(hrs3)
+                assert hr1 != hr2 != hr3
+                if (hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user) not in ret:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user)] = set([item])
+                else:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user)].add(item)
+            except:
+                pass
+    return ret
+
+def construct_3i_test(t2hr_dict_train, t2hr_dict_test, data):
+    ret = {}
+    for user in tqdm.tqdm(data):
+        items = data[user]
+        for item in items:
+            try:
+                hrs1 = t2hr_dict_test[item]
+                hr1 = random.choice(hrs1)
+                hrs2 = t2hr_dict_train[item]
+                hr2 = random.choice(hrs2)
+                hrs3 = t2hr_dict_train[item]
+                hr3 = random.choice(hrs3)
+                assert hr1 != hr2 != hr3
+                if (hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user) not in ret:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user)] = set([item])
+                else:
+                    ret[(hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user)].add(item)
+            except:
+                pass
     return ret
 
 def parse_args(args=None):
@@ -121,10 +261,39 @@ if __name__ == '__main__':
     kg_train, kg_test, train_dict, test_dict, i_count, e_count, r_count = read_data(path)
     kg_train_t2hr_dict = get_mapper(kg_train)
     kg_test_t2hr_dict = get_mapper(kg_test)
-    # data_1p_train = construct_1p(kg_train_t2hr_dict, train_dict)
-    # data_1p_test = construct_1p(kg_test_t2hr_dict, test_dict)
+    
+    # 1p Format: (e_1, r_1, u): {a}
+    print('Constructing 1p...')
+    data_1p_train = construct_1p(kg_train_t2hr_dict, train_dict)
+    data_1p_test = construct_1p(kg_test_t2hr_dict, test_dict)
+    print(f'Stats 1p: #Train: {len(data_1p_train)}, #Test: {len(data_1p_test)}')
+    
+    # 2p Format: (e_1, r_1, r_2, u): {a}
+    print('Constructing 2p...')
     data_2p_train = construct_2p_train(kg_train_t2hr_dict, train_dict)
+    data_2p_test = construct_2p_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    print(f'Stats 2p: #Train: {len(data_2p_train)}, #Test: {len(data_2p_test)}')
+    
+    # 3p Format: (e_1, r_1, r_2, r_3, u): {a}
+    print('Constructing 3p...')
+    data_3p_train = construct_3p_train(kg_train_t2hr_dict, train_dict)
+    data_3p_test = construct_3p_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    print(f'Stats 3p: #Train: {len(data_3p_train)}, #Test: {len(data_3p_test)}')
+    
+    # 2i Format: (e_1, r_1, e_2, r_2, u): {a}
+    print('Constructing 2i...')
+    data_2i_train = construct_2i_train(kg_train_t2hr_dict, train_dict)
+    data_2i_test = construct_2i_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    print(f'Stats 2i: #Train: {len(data_2i_train)}, #Test: {len(data_2i_test)}')
+    
+    # 3i Format: (e_1, r_1, e_2, r_2, e_3, r_3, u): {a}
+    print('Constructing 3i...')
+    data_3i_train = construct_3i_train(kg_train_t2hr_dict, train_dict)
+    data_3i_test = construct_3i_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    print(f'Stats 3i: #Train: {len(data_3i_train)}, #Test: {len(data_3i_test)}')
+    
     pdb.set_trace()
+    
     # save_obj(data_1p_train, path + '/1p_train.pkl')
     # save_obj(data_1p_test, path + '/1p_test.pkl')
     
