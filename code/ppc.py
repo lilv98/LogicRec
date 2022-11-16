@@ -244,11 +244,56 @@ def construct_3i_test(t2hr_dict_train, t2hr_dict_test, data):
                 pass
     return ret
 
+def save_txt(path, obj):
+    with open(path, 'w') as f:
+        for line in obj.values:
+            f.write(' '.join([str(x) for x in line.tolist()]) + '\n')
+
+def get_k_test_data(data, k):
+    all_queries = list(data.keys())
+    ret = set([])
+    while len(ret) < k:
+        query = random.choice(all_queries)
+        answer = random.choice(list(data[query]))
+        query = [x for x in query]
+        query.extend([answer])
+        ret.add(tuple(query))
+    return list(ret)
+
+def get_baseline_data_train(path, data):
+    ret = {}
+    for k in data:
+        items = data[k]
+        for item in items:
+            if k[-1] in ret:
+                ret[k[-1]].add(item)
+            else:
+                ret[k[-1]] = set([item])
+    with open(path, 'w') as f:
+        for k in ret:
+            items = list(ret[k])
+            line = str(k) + ' ' + ' '.join([str(x) for x in items]) + '\n'
+            f.write(line)
+
+def get_baseline_data_test(path, data):
+    ret = {}
+    for line in data:
+        if line[2] in ret:
+            ret[line[2]].add(line[-1])
+        else:
+            ret[line[2]] = set([line[-1]])
+    with open(path, 'w') as f:
+        for k in ret:
+            items = list(ret[k])
+            line = str(k) + ' ' + ' '.join([str(x) for x in items]) + '\n'
+            f.write(line)
+
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='../data/', type=str)
     parser.add_argument('--dataset', default='amazon-book', type=str)
     parser.add_argument('--seed', default=42, type=int)
+    parser.add_argument('--N_test', default=2000, type=int)
     return parser.parse_args(args)
 
 if __name__ == '__main__':
@@ -257,8 +302,13 @@ if __name__ == '__main__':
     for arg in vars(cfg):
         print(f'\t{arg}: {getattr(cfg, arg)}', flush=True)
     seed_everything(cfg.seed)
-    path = cfg.data_root + '/' + cfg.dataset
+    path = cfg.data_root + cfg.dataset
+    input_path = cfg.data_root + cfg.dataset + '/input/'
+    if not os.path.exists(input_path):
+        os.makedirs(input_path)
     kg_train, kg_test, train_dict, test_dict, i_count, e_count, r_count = read_data(path)
+    save_txt(input_path + 'kg_train.txt', kg_train)
+    save_txt(input_path + 'kg_test.txt', kg_test)
     kg_train_t2hr_dict = get_mapper(kg_train)
     kg_test_t2hr_dict = get_mapper(kg_test)
     
@@ -266,35 +316,46 @@ if __name__ == '__main__':
     print('Constructing 1p...')
     data_1p_train = construct_1p(kg_train_t2hr_dict, train_dict)
     data_1p_test = construct_1p(kg_test_t2hr_dict, test_dict)
+    data_1p_test = get_k_test_data(data_1p_test, k=cfg.N_test)
+    get_baseline_data_train(input_path + 'baseline_train.txt', data_1p_train)
+    get_baseline_data_test(input_path + 'baseline_test.txt', data_1p_test)
     print(f'Stats 1p: #Train: {len(data_1p_train)}, #Test: {len(data_1p_test)}')
+    save_obj(data_1p_train, input_path + '1p_train.pkl')
+    save_obj(data_1p_test, input_path + '1p_test.pkl')
     
     # 2p Format: (e_1, r_1, r_2, u): {a}
     print('Constructing 2p...')
     data_2p_train = construct_2p_train(kg_train_t2hr_dict, train_dict)
     data_2p_test = construct_2p_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    data_2p_test = get_k_test_data(data_2p_test, k=cfg.N_test)
     print(f'Stats 2p: #Train: {len(data_2p_train)}, #Test: {len(data_2p_test)}')
+    save_obj(data_2p_train, input_path + '2p_train.pkl')
+    save_obj(data_2p_test, input_path + '2p_test.pkl')
     
     # 3p Format: (e_1, r_1, r_2, r_3, u): {a}
     print('Constructing 3p...')
     data_3p_train = construct_3p_train(kg_train_t2hr_dict, train_dict)
     data_3p_test = construct_3p_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    data_3p_test = get_k_test_data(data_3p_test, k=cfg.N_test)
     print(f'Stats 3p: #Train: {len(data_3p_train)}, #Test: {len(data_3p_test)}')
+    save_obj(data_3p_train, input_path + '3p_train.pkl')
+    save_obj(data_3p_test, input_path + '3p_test.pkl')
     
     # 2i Format: (e_1, r_1, e_2, r_2, u): {a}
     print('Constructing 2i...')
     data_2i_train = construct_2i_train(kg_train_t2hr_dict, train_dict)
     data_2i_test = construct_2i_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    data_2i_test = get_k_test_data(data_2i_test, k=cfg.N_test)
     print(f'Stats 2i: #Train: {len(data_2i_train)}, #Test: {len(data_2i_test)}')
+    save_obj(data_2i_train, input_path + '2i_train.pkl')
+    save_obj(data_2i_test, input_path + '2i_test.pkl')
     
     # 3i Format: (e_1, r_1, e_2, r_2, e_3, r_3, u): {a}
     print('Constructing 3i...')
     data_3i_train = construct_3i_train(kg_train_t2hr_dict, train_dict)
     data_3i_test = construct_3i_test(kg_train_t2hr_dict, kg_test_t2hr_dict, test_dict)
+    data_3i_test = get_k_test_data(data_3i_test, k=cfg.N_test)
     print(f'Stats 3i: #Train: {len(data_3i_train)}, #Test: {len(data_3i_test)}')
-    
-    pdb.set_trace()
-    
-    # save_obj(data_1p_train, path + '/1p_train.pkl')
-    # save_obj(data_1p_test, path + '/1p_test.pkl')
-    
+    save_obj(data_3i_train, input_path + '3i_train.pkl')
+    save_obj(data_3i_test, input_path + '3i_test.pkl')
     
