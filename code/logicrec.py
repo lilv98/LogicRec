@@ -143,11 +143,9 @@ class RSDatasetTest(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         pos = self.data[idx]
-        pdb.set_trace()
-        # neg_i = torch.cat([user.expand(self.num_ng // 2), neg_item], dim=0).view(-1, 2).t()
-        # neg_u = torch.cat([neg_user, item.expand(self.num_ng // 2)], dim=0).view(-1, 2).t()
-        # sample = torch.cat([torch.tensor([user, item]).unsqueeze(0), neg_i, neg_u], dim=0)
-        # return sample
+        users = pos[0].unsqueeze(dim=0).expand(N_item, 1)
+        items = torch.arange(N_item).unsqueeze(dim=1)
+        return torch.cat([users, items], dim=-1), pos
 
 class RSModel(torch.nn.Module):
     def __init__(self, N_user, N_item, cfg):
@@ -159,14 +157,14 @@ class RSModel(torch.nn.Module):
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.i_embedding.weight.data)
 
-    def _BPR(self, u_emb, i_emb):
+    def _BPRMF(self, u_emb, i_emb):
         return (u_emb * i_emb).sum(dim=-1)
 
     def forward(self, data):
         u_emb = self.u_embedding(data[:, :, 0])
         i_emb = self.i_embedding(data[:, :, 1])
-        if self.rs_base_model == 'BPR':
-            return self._BPR(u_emb, i_emb)
+        if self.rs_base_model == 'BPRMF':
+            return self._BPRMF(u_emb, i_emb)
         else:
             raise ValueError
 
@@ -174,8 +172,60 @@ class RSModel(torch.nn.Module):
         logits = self.forward(data)
         return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
 
-def evaluate(logits):
-    pdb.set_trace()
+def get_rank(pos, logits, flt):
+    ranking = torch.argsort(logits, descending=True)
+    rank = (ranking == pos[0, 1]).nonzero().item() + 1
+    ranking_better = ranking[:rank - 1]
+    if flt != None:
+        for e in flt:
+            if (ranking_better == e).sum() == 1:
+                rank -= 1
+    return rank
+
+def evaluate(dataloader, model, device, train_dict):
+    r = []
+    rr = []
+    h1 = []
+    h3 = []
+    h10 = []
+    model.eval()
+    with torch.no_grad():
+        for possible, pos in dataloader:
+            possible = possible.to(device)
+            logits = model(possible)[0]
+            flt = train_dict[pos[0][0].item()]
+            rank = get_rank(pos, logits, flt)
+            r.append(rank)
+            rr.append(1/rank)
+            if rank == 1:
+                h1.append(1)
+            else:
+                h1.append(0)
+            if rank <= 3:
+                h3.append(1)
+            else:
+                h3.append(0)
+            if rank <= 10:
+                h10.append(1)
+            else:
+                h10.append(0)
+    
+    results = [r, rr, h1, h3, h10]
+    
+    r = int(sum(results[0])/len(results[0]))
+    rr = round(sum(results[1])/len(results[1]), 3)
+    h1 = round(sum(results[2])/len(results[2]), 3)
+    h3 = round(sum(results[3])/len(results[3]), 3)
+    h10 = round(sum(results[4])/len(results[4]), 3)
+    
+    print(r, flush=True)
+    print(rr, flush=True)
+    print(h1, flush=True)
+    print(h3, flush=True)
+    print(h10, flush=True)
+    
+    return r, rr, h1, h3, h10
+
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
@@ -184,14 +234,16 @@ def parse_args(args=None):
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
-    parser.add_argument('--lr', default=1e-3, type=int)
-    parser.add_argument('--wd', default=0, type=int)
+    parser.add_argument('--lr', default=1e-2, type=int)
+    parser.add_argument('--wd', default=1e-5, type=int)
     parser.add_argument('--max_epochs', default=1000, type=int)
-    parser.add_argument('--rs_base_model', default='BPR', type=str)
-    parser.add_argument('--num_workers', default=0, type=int)
+    parser.add_argument('--rs_base_model', default='BPRMF', type=str)
+    parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
+    parser.add_argument('--tolerance', default=5, type=int)
+    parser.add_argument('--valid_interval', default=10, type=int)
     return parser.parse_args(args)
 
 if __name__ == '__main__':
@@ -219,7 +271,7 @@ if __name__ == '__main__':
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
                                                 drop_last=True)
-    rs_dataset_test = torch.utils.data.DataLoader(dataset=rs_dataset_test,
+    rs_dataloader_test = torch.utils.data.DataLoader(dataset=rs_dataset_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
@@ -231,18 +283,36 @@ if __name__ == '__main__':
     if cfg.verbose:
         kge_dataloader = tqdm.tqdm(kge_dataloader)
         rs_dataloader_train = tqdm.tqdm(rs_dataloader_train)
+        rs_dataloader_test = tqdm.tqdm(rs_dataloader_test)
     
     optimizer_rs = torch.optim.Adam(model_rs.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
+    
+    tolerance = cfg.tolerance
+    max_value = 0
     for epoch in range(cfg.max_epochs):
         print(f'Common -- Epoch {epoch + 1}:')
         model_rs.train()
         avg_loss = []
-        for batch in zip(kge_dataloader, rs_dataloader_train):
-            batch_rs = batch[1].to(device)
-            loss_rs = model_rs.get_loss(batch_rs)
+        # for batch in zip(kge_dataloader, rs_dataloader_train):
+        #     batch_rs = batch[1].to(device)
+        #     loss_rs = model_rs.get_loss(batch_rs)
+        for batch in rs_dataloader_train:
+            batch = batch.to(device)
+            loss_rs = model_rs.get_loss(batch)
             optimizer_rs.zero_grad()
             loss_rs.backward()
             optimizer_rs.step()
             avg_loss.append(loss_rs.item())
         print(f'Loss: {round(sum(avg_loss) / len(avg_loss), 4)}')
+        
+        if (epoch + 1) % cfg.valid_interval == 0:
+            r, rr, h1, h3, h10 = evaluate(rs_dataloader_test, model_rs, device, train_dict)
+            if rr >= max_value:
+                max_value = rr
+                tolerance = cfg.tolerance
+            else:
+                tolerance -= 1
+
+        if (tolerance == 0) or ((epoch + 1) == cfg.max_epochs):
+            break
     # pdb.set_trace()
