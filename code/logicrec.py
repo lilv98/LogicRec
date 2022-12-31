@@ -201,6 +201,51 @@ class RSModel(torch.nn.Module):
         logits = self.forward(data)
         return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
 
+class LogicRecModel(torch.nn.Module):
+    def __init__(self, N_user, N_item, N_ent, N_rel, cfg):
+        super().__init__()
+        self.emb_dim = cfg.emb_dim
+        self.kge_base_model = cfg.kge_base_model
+        self.rs_base_model = cfg.rs_base_model
+        self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
+        self.r_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
+        self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
+        torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
+        torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
+        torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
+
+    def _DistMult(self, h_emb, r_emb, t_emb):
+        return (h_emb * r_emb * t_emb).sum(dim=-1)
+    
+    def _BPRMF(self, u_emb, i_emb):
+        return (u_emb * i_emb).sum(dim=-1)
+
+    def forward_kge(self, data):
+        h_emb = self.e_embedding(data[:, :, 0])
+        r_emb = self.r_embedding(data[:, :, 1])
+        t_emb = self.e_embedding(data[:, :, 2])
+        if self.kge_base_model == 'DistMult':
+            return self._DistMult(h_emb, r_emb, t_emb)
+        else:
+            raise ValueError
+
+    def forward_rs(self, data):
+        u_emb = self.u_embedding(data[:, :, 0])
+        i_emb = self.e_embedding(data[:, :, 1])
+        if self.rs_base_model == 'BPRMF':
+            return self._BPRMF(u_emb, i_emb)
+        else:
+            raise ValueError
+
+    def get_loss_kge(self, data):
+        logits = self.forward_kge(data)
+        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+
+    def get_loss_rs(self, data):
+        logits = self.forward_rs(data)
+        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+
+
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
     rank = (ranking == pos[0, 1]).nonzero().item() + 1
@@ -221,7 +266,7 @@ def evaluate(dataloader, model, device, train_dict):
     with torch.no_grad():
         for possible, pos in dataloader:
             possible = possible.to(device)
-            logits = model(possible)[0]
+            logits = model.forward_rs(possible)[0]
             flt = train_dict[pos[0][0].item()]
             rank = get_rank(pos, logits, flt)
             r.append(rank)
@@ -267,12 +312,13 @@ def parse_args(args=None):
     parser.add_argument('--wd', default=1e-5, type=int)
     parser.add_argument('--max_epochs', default=1000, type=int)
     parser.add_argument('--rs_base_model', default='BPRMF', type=str)
+    parser.add_argument('--kge_base_model', default='DistMult', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--tolerance', default=5, type=int)
-    parser.add_argument('--valid_interval', default=10, type=int)
+    parser.add_argument('--valid_interval', default=5, type=int)
     return parser.parse_args(args)
 
 if __name__ == '__main__':
@@ -341,8 +387,8 @@ if __name__ == '__main__':
                                                 shuffle=True,
                                                 drop_last=True)
     
-    model_rs = RSModel(N_user, N_item, cfg)
-    model_rs = model_rs.to(device)
+    model = LogicRecModel(N_user, N_item, N_ent, N_rel, cfg)
+    model = model.to(device)
     
     if cfg.verbose:
         kge_dataloader = tqdm.tqdm(kge_dataloader)
@@ -354,13 +400,13 @@ if __name__ == '__main__':
         lqa_dataloader_2i_train = tqdm.tqdm(lqa_dataloader_2i_train)
         lqa_dataloader_3i_train = tqdm.tqdm(lqa_dataloader_3i_train)
     
-    optimizer_rs = torch.optim.Adam(model_rs.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
     
     tolerance = cfg.tolerance
     max_value = 0
     for epoch in range(cfg.max_epochs):
         print(f'Common -- Epoch {epoch + 1}:')
-        model_rs.train()
+        model.train()
         avg_loss = []
         for batch in zip(kge_dataloader, 
                          rs_dataloader_train,
@@ -377,18 +423,19 @@ if __name__ == '__main__':
             batch_3p = batch[4].to(device)
             batch_2i = batch[5].to(device)
             batch_3i = batch[6].to(device)
-            loss_rs = model_rs.get_loss(batch_rs)
-        # for batch in rs_dataloader_train:
-        #     batch = batch.to(device)
-        #     loss_rs = model_rs.get_loss(batch)
-            optimizer_rs.zero_grad()
-            loss_rs.backward()
-            optimizer_rs.step()
-            avg_loss.append(loss_rs.item())
+            
+            loss_kge = model.get_loss_kge(batch_kge)
+            loss_rs = model.get_loss_rs(batch_rs)
+            loss = loss_kge + loss_rs
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            avg_loss.append(loss.item())
         print(f'Loss: {round(sum(avg_loss) / len(avg_loss), 4)}')
         
         if (epoch + 1) % cfg.valid_interval == 0:
-            r, rr, h1, h3, h10 = evaluate(rs_dataloader_test, model_rs, device, train_dict)
+            r, rr, h1, h3, h10 = evaluate(rs_dataloader_test, model, device, train_dict)
             if rr >= max_value:
                 max_value = rr
                 tolerance = cfg.tolerance
