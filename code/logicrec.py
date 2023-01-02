@@ -201,15 +201,35 @@ class RSModel(torch.nn.Module):
         logits = self.forward(data)
         return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
 
+class BasicIntersection(torch.nn.Module):
+
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+        self.layer1 = torch.nn.Linear(self.dim, self.dim)
+        self.layer2 = torch.nn.Linear(self.dim, self.dim)
+        torch.nn.init.xavier_uniform_(self.layer1.weight)
+        torch.nn.init.xavier_uniform_(self.layer2.weight)
+
+    def forward(self, q_emb_1, q_emb_2):
+        embeddings = torch.cat([q_emb_1.unsqueeze(dim=1), q_emb_2.unsqueeze(dim=1)], dim=1)
+        layer1_act = torch.nn.functional.relu(self.layer1(embeddings))
+        attention = torch.nn.functional.softmax(self.layer2(layer1_act), dim=0)
+        return torch.sum(attention * embeddings, dim=1)
+
+
 class LogicRecModel(torch.nn.Module):
-    def __init__(self, N_user, N_item, N_ent, N_rel, cfg):
+    def __init__(self, N_user, N_ent, N_rel, cfg):
         super().__init__()
         self.emb_dim = cfg.emb_dim
+        self.gamma = cfg.gamma
         self.kge_base_model = cfg.kge_base_model
         self.rs_base_model = cfg.rs_base_model
+        self.lqa_base_model = cfg.lqa_base_model
         self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
-        self.r_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
+        self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
         self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
+        self.basic_intersection = BasicIntersection(cfg.emb_dim)
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
@@ -219,6 +239,24 @@ class LogicRecModel(torch.nn.Module):
     
     def _BPRMF(self, u_emb, i_emb):
         return (u_emb * i_emb).sum(dim=-1)
+
+    def _projection(self, e_emb, r_emb):
+        if self.lqa_base_model == 'GQE':
+            return e_emb + r_emb
+        else:
+            raise ValueError
+
+    def _intersection(self, q_emb_1, q_emb_2):
+        if self.lqa_base_model == 'GQE':
+            return self.basic_intersection(q_emb_1, q_emb_2)
+        else:
+            raise ValueError
+
+    def _lqa(self, q_emb, a_emb):
+        if self.lqa_base_model == 'GQE':
+            return self.gamma - torch.norm(q_emb - a_emb, p=1, dim=-1)
+        else:
+            raise ValueError
 
     def forward_kge(self, data):
         h_emb = self.e_embedding(data[:, :, 0])
@@ -236,13 +274,41 @@ class LogicRecModel(torch.nn.Module):
             return self._BPRMF(u_emb, i_emb)
         else:
             raise ValueError
+    
+    def forward_1p(self, data):
+        e_emb = self.e_embedding(data[:, 0, 0])
+        r_emb = self.r_embedding(data[:, 0, 1])
+        u_emb = self.u_embedding(data[:, 0, 2])
+        ur_emb = self.r_embedding.weight[-1]
+        a_emb = self.e_embedding(data[:, :, -1])
+        q_emb_1 = self._projection(e_emb, r_emb)
+        q_emb_2 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
-    def get_loss_kge(self, data):
-        logits = self.forward_kge(data)
-        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+    def forward_2p(self, data):
+        e_emb = self.e_embedding(data[:, 0, 0])
+        r_emb_1 = self.r_embedding(data[:, 0, 1])
+        r_emb_2 = self.r_embedding(data[:, 0, 2])
+        u_emb = self.u_embedding(data[:, 0, 3])
+        ur_emb = self.r_embedding.weight[-1]
+        a_emb = self.e_embedding(data[:, :, -1])
+        q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
+        q_emb_2 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
-    def get_loss_rs(self, data):
-        logits = self.forward_rs(data)
+    def get_loss(self, data, flag):
+        if flag == 'kge':
+            logits = self.forward_kge(data)
+        elif flag == 'rs':
+            logits = self.forward_rs(data)
+        elif flag == '1p':
+            logits = self.forward_1p(data)
+        elif flag == '2p':
+            logits = self.forward_2p(data)
+        else:
+            raise ValueError
         return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
 
 
@@ -308,11 +374,13 @@ def parse_args(args=None):
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
+    parser.add_argument('--gamma', default=12, type=float)
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
     parser.add_argument('--max_epochs', default=1000, type=int)
     parser.add_argument('--rs_base_model', default='BPRMF', type=str)
     parser.add_argument('--kge_base_model', default='DistMult', type=str)
+    parser.add_argument('--lqa_base_model', default='GQE', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
@@ -387,7 +455,7 @@ if __name__ == '__main__':
                                                 shuffle=True,
                                                 drop_last=True)
     
-    model = LogicRecModel(N_user, N_item, N_ent, N_rel, cfg)
+    model = LogicRecModel(N_user, N_ent, N_rel, cfg)
     model = model.to(device)
     
     if cfg.verbose:
@@ -424,9 +492,12 @@ if __name__ == '__main__':
             batch_2i = batch[5].to(device)
             batch_3i = batch[6].to(device)
             
-            loss_kge = model.get_loss_kge(batch_kge)
-            loss_rs = model.get_loss_rs(batch_rs)
-            loss = loss_kge + loss_rs
+            loss_kge = model.get_loss(batch_kge, flag='kge')
+            loss_rs = model.get_loss(batch_rs, flag='rs')
+            loss_1p = model.get_loss(batch_1p, flag='1p')
+            loss_2p = model.get_loss(batch_2p, flag='2p')
+            
+            loss = loss_kge + loss_rs + loss_1p + loss_2p
             
             optimizer.zero_grad()
             loss.backward()
