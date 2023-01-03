@@ -278,7 +278,7 @@ class LogicRecModel(torch.nn.Module):
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
         r_emb = self.r_embedding(data[:, 0, 1])
-        u_emb = self.u_embedding(data[:, 0, 2])
+        u_emb = self.u_embedding(data[:, 0, -2])
         ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
         q_emb_1 = self._projection(e_emb, r_emb)
@@ -290,12 +290,59 @@ class LogicRecModel(torch.nn.Module):
         e_emb = self.e_embedding(data[:, 0, 0])
         r_emb_1 = self.r_embedding(data[:, 0, 1])
         r_emb_2 = self.r_embedding(data[:, 0, 2])
-        u_emb = self.u_embedding(data[:, 0, 3])
+        u_emb = self.u_embedding(data[:, 0, -2])
         ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
         q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
         q_emb_2 = self._projection(u_emb, ur_emb)
         q_emb = self._intersection(q_emb_1, q_emb_2)
+        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+
+    def forward_3p(self, data):
+        e_emb = self.e_embedding(data[:, 0, 0])
+        r_emb_1 = self.r_embedding(data[:, 0, 1])
+        r_emb_2 = self.r_embedding(data[:, 0, 2])
+        r_emb_3 = self.r_embedding(data[:, 0, 3])
+        u_emb = self.u_embedding(data[:, 0, -2])
+        ur_emb = self.r_embedding.weight[-1]
+        a_emb = self.e_embedding(data[:, :, -1])
+        q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+        q_emb_2 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+
+    def forward_2i(self, data):
+        e_emb_1 = self.e_embedding(data[:, 0, 0])
+        r_emb_1 = self.r_embedding(data[:, 0, 1])
+        e_emb_2 = self.e_embedding(data[:, 0, 2])
+        r_emb_2 = self.r_embedding(data[:, 0, 3])
+        u_emb = self.u_embedding(data[:, 0, -2])
+        ur_emb = self.r_embedding.weight[-1]
+        a_emb = self.e_embedding(data[:, :, -1])
+        q_emb_1 = self._projection(e_emb_1, r_emb_1)
+        q_emb_2 = self._projection(e_emb_2, r_emb_2)
+        q_emb_3 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+        q_emb = self._intersection(q_emb, q_emb_3)
+        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+
+    def forward_3i(self, data):
+        e_emb_1 = self.e_embedding(data[:, 0, 0])
+        r_emb_1 = self.r_embedding(data[:, 0, 1])
+        e_emb_2 = self.e_embedding(data[:, 0, 2])
+        r_emb_2 = self.r_embedding(data[:, 0, 3])
+        e_emb_3 = self.e_embedding(data[:, 0, 4])
+        r_emb_3 = self.r_embedding(data[:, 0, 5])
+        u_emb = self.u_embedding(data[:, 0, -2])
+        ur_emb = self.r_embedding.weight[-1]
+        a_emb = self.e_embedding(data[:, :, -1])
+        q_emb_1 = self._projection(e_emb_1, r_emb_1)
+        q_emb_2 = self._projection(e_emb_2, r_emb_2)
+        q_emb_3 = self._projection(e_emb_3, r_emb_3)
+        q_emb_4 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+        q_emb = self._intersection(q_emb, q_emb_3)
+        q_emb = self._intersection(q_emb, q_emb_4)
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def get_loss(self, data, flag):
@@ -307,6 +354,12 @@ class LogicRecModel(torch.nn.Module):
             logits = self.forward_1p(data)
         elif flag == '2p':
             logits = self.forward_2p(data)
+        elif flag == '3p':
+            logits = self.forward_3p(data)
+        elif flag == '2i':
+            logits = self.forward_2i(data)
+        elif flag == '3i':
+            logits = self.forward_3i(data)
         else:
             raise ValueError
         return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
@@ -496,8 +549,11 @@ if __name__ == '__main__':
             loss_rs = model.get_loss(batch_rs, flag='rs')
             loss_1p = model.get_loss(batch_1p, flag='1p')
             loss_2p = model.get_loss(batch_2p, flag='2p')
+            loss_3p = model.get_loss(batch_3p, flag='3p')
+            loss_2i = model.get_loss(batch_2i, flag='2i')
+            loss_3i = model.get_loss(batch_3i, flag='3i')
             
-            loss = loss_kge + loss_rs + loss_1p + loss_2p
+            loss = loss_kge + loss_rs + loss_1p + loss_2p + loss_3p + loss_2i + loss_3i
             
             optimizer.zero_grad()
             loss.backward()
