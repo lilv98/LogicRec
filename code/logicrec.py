@@ -231,6 +231,11 @@ class LogicRecModel(torch.nn.Module):
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
+        if cfg.fuse == 1:
+            self.fusion_fc_1 = torch.nn.Linear(self.emb_dim * 2, self.emb_dim // 2)
+            self.fusion_fc_2 = torch.nn.Linear(self.emb_dim // 2, self.emb_dim)
+            torch.nn.init.xavier_uniform_(self.fusion_fc_1.weight.data)
+            torch.nn.init.xavier_uniform_(self.fusion_fc_2.weight.data)
 
     def _DistMult(self, h_emb, r_emb, t_emb):
         return (h_emb * r_emb * t_emb).sum(dim=-1)
@@ -255,6 +260,13 @@ class LogicRecModel(torch.nn.Module):
             return self.gamma - torch.norm(q_emb - a_emb, p=1, dim=-1)
         else:
             raise ValueError
+    
+    def _fusion(self, e_emb, u_emb):
+        x = torch.cat([e_emb, u_emb], dim=-1)
+        x = self.fusion_fc_1(x)
+        x = torch.relu(x)
+        x = self.fusion_fc_2(x)
+        return x
 
     def forward_kge(self, data):
         h_emb = self.e_embedding(data[:, :, 0])
@@ -277,11 +289,17 @@ class LogicRecModel(torch.nn.Module):
         e_emb = self.e_embedding(data[:, 0, 0])
         r_emb = self.r_embedding(data[:, 0, 1])
         u_emb = self.u_embedding(data[:, 0, -2])
-        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
-        q_emb_1 = self._projection(e_emb, r_emb)
-        q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
+        if cfg.fuse == 0:
+            ur_emb = self.r_embedding.weight[-1]
+            q_emb_1 = self._projection(e_emb, r_emb)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self._intersection(q_emb_1, q_emb_2)
+        elif cfg.fuse == 1:
+            e_emb = self._fusion(e_emb, u_emb)
+            q_emb = self._projection(e_emb, r_emb)
+        else:
+            raise ValueError
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_2p(self, data):
@@ -289,11 +307,17 @@ class LogicRecModel(torch.nn.Module):
         r_emb_1 = self.r_embedding(data[:, 0, 1])
         r_emb_2 = self.r_embedding(data[:, 0, 2])
         u_emb = self.u_embedding(data[:, 0, -2])
-        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
-        q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
-        q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
+        if cfg.fuse == 0:
+            ur_emb = self.r_embedding.weight[-1]
+            q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self._intersection(q_emb_1, q_emb_2)
+        elif cfg.fuse == 1:
+            e_emb = self._fusion(e_emb, u_emb)
+            q_emb = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
+        else:
+            raise ValueError
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_3p(self, data):
@@ -302,11 +326,17 @@ class LogicRecModel(torch.nn.Module):
         r_emb_2 = self.r_embedding(data[:, 0, 2])
         r_emb_3 = self.r_embedding(data[:, 0, 3])
         u_emb = self.u_embedding(data[:, 0, -2])
-        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
-        q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
-        q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
+        if cfg.fuse == 0:
+            ur_emb = self.r_embedding.weight[-1]
+            q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self._intersection(q_emb_1, q_emb_2)
+        elif cfg.fuse == 1:
+            e_emb = self._fusion(e_emb, u_emb)
+            q_emb = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+        else:
+            raise ValueError
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_2i(self, data):
@@ -315,13 +345,22 @@ class LogicRecModel(torch.nn.Module):
         e_emb_2 = self.e_embedding(data[:, 0, 2])
         r_emb_2 = self.r_embedding(data[:, 0, 3])
         u_emb = self.u_embedding(data[:, 0, -2])
-        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
-        q_emb_1 = self._projection(e_emb_1, r_emb_1)
-        q_emb_2 = self._projection(e_emb_2, r_emb_2)
-        q_emb_3 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
-        q_emb = self._intersection(q_emb, q_emb_3)
+        if cfg.fuse == 0:
+            ur_emb = self.r_embedding.weight[-1]
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(u_emb, ur_emb)
+            q_emb = self._intersection(q_emb_1, q_emb_2)
+            q_emb = self._intersection(q_emb, q_emb_3)
+        elif cfg.fuse == 1:
+            e_emb_1 = self._fusion(e_emb_1, u_emb)
+            e_emb_2 = self._fusion(e_emb_2, u_emb)
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb = self._intersection(q_emb_1, q_emb_2)
+        else:
+            raise ValueError
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_3i(self, data):
@@ -332,15 +371,27 @@ class LogicRecModel(torch.nn.Module):
         e_emb_3 = self.e_embedding(data[:, 0, 4])
         r_emb_3 = self.r_embedding(data[:, 0, 5])
         u_emb = self.u_embedding(data[:, 0, -2])
-        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
-        q_emb_1 = self._projection(e_emb_1, r_emb_1)
-        q_emb_2 = self._projection(e_emb_2, r_emb_2)
-        q_emb_3 = self._projection(e_emb_3, r_emb_3)
-        q_emb_4 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
-        q_emb = self._intersection(q_emb, q_emb_3)
-        q_emb = self._intersection(q_emb, q_emb_4)
+        if cfg.fuse == 0:
+            ur_emb = self.r_embedding.weight[-1]
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(e_emb_3, r_emb_3)
+            q_emb_4 = self._projection(u_emb, ur_emb)
+            q_emb = self._intersection(q_emb_1, q_emb_2)
+            q_emb = self._intersection(q_emb, q_emb_3)
+            q_emb = self._intersection(q_emb, q_emb_4)
+        elif cfg.fuse == 1:
+            e_emb_1 = self._fusion(e_emb_1, u_emb)
+            e_emb_2 = self._fusion(e_emb_2, u_emb)
+            e_emb_3 = self._fusion(e_emb_3, u_emb)
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(e_emb_3, r_emb_3)
+            q_emb = self._intersection(q_emb_1, q_emb_2)
+            q_emb = self._intersection(q_emb, q_emb_3)
+        else:
+            raise ValueError
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def get_loss(self, data, flag):
@@ -440,6 +491,7 @@ def parse_args(args=None):
     parser.add_argument('--gamma', default=12, type=float)
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
+    parser.add_argument('--fuse', default=1, type=int)
     parser.add_argument('--max_epochs', default=1000, type=int)
     parser.add_argument('--rs_base_model', default='BPRMF', type=str)
     parser.add_argument('--kge_base_model', default='DistMult', type=str)
@@ -630,4 +682,3 @@ if __name__ == '__main__':
 
         if (tolerance == 0) or ((epoch + 1) == cfg.max_epochs):
             break
-    # pdb.set_trace()
