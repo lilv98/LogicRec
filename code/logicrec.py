@@ -143,8 +143,8 @@ class RSDatasetTest(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         pos = self.data[idx]
-        users = pos[0].unsqueeze(dim=0).expand(N_item, 1)
-        items = torch.arange(N_item).unsqueeze(dim=1)
+        users = pos[0].unsqueeze(dim=0).expand(self.N_item, 1)
+        items = torch.arange(self.N_item).unsqueeze(dim=1)
         return torch.cat([users, items], dim=-1), pos
 
 class LQADatasetTrain(torch.utils.data.Dataset):
@@ -176,30 +176,28 @@ class LQADatasetTrain(torch.utils.data.Dataset):
         sample = torch.cat([pos.unsqueeze(dim=0), negs], dim=0)
         return sample
 
-class RSModel(torch.nn.Module):
-    def __init__(self, N_user, N_item, cfg):
+class LQADatasetTest(torch.utils.data.Dataset):
+    def __init__(self, N_item, data, cfg):
         super().__init__()
-        self.emb_dim = cfg.emb_dim
-        self.rs_base_model = cfg.rs_base_model
-        self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
-        self.i_embedding = torch.nn.Embedding(N_item, cfg.emb_dim)
-        torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
-        torch.nn.init.xavier_uniform_(self.i_embedding.weight.data)
+        self.N_item = N_item
+        self.num_ng = cfg.num_ng
+        self.data = self._get_data(data)
 
-    def _BPRMF(self, u_emb, i_emb):
-        return (u_emb * i_emb).sum(dim=-1)
+    def _get_data(self, data):
+        ret = []
+        for query in data:
+            query_as_list = list(query)
+            ret.append(query_as_list)
+        return torch.tensor(ret)
 
-    def forward(self, data):
-        u_emb = self.u_embedding(data[:, :, 0])
-        i_emb = self.i_embedding(data[:, :, 1])
-        if self.rs_base_model == 'BPRMF':
-            return self._BPRMF(u_emb, i_emb)
-        else:
-            raise ValueError
-
-    def get_loss(self, data):
-        logits = self.forward(data)
-        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        pos = self.data[idx]
+        queries = pos[:-1].unsqueeze(dim=0).expand(self.N_item, len(pos) - 1)
+        items = torch.arange(self.N_item).unsqueeze(dim=1)
+        return torch.cat([queries, items], dim=-1), pos
 
 class BasicIntersection(torch.nn.Module):
 
@@ -367,7 +365,7 @@ class LogicRecModel(torch.nn.Module):
 
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
-    rank = (ranking == pos[0, 1]).nonzero().item() + 1
+    rank = (ranking == pos[0, -1]).nonzero().item() + 1
     ranking_better = ranking[:rank - 1]
     if flt != None:
         for e in flt:
@@ -375,7 +373,7 @@ def get_rank(pos, logits, flt):
                 rank -= 1
     return rank
 
-def evaluate(dataloader, model, device, train_dict):
+def evaluate(dataloader, model, device, train_dict, flag):
     r = []
     rr = []
     h1 = []
@@ -385,8 +383,21 @@ def evaluate(dataloader, model, device, train_dict):
     with torch.no_grad():
         for possible, pos in dataloader:
             possible = possible.to(device)
-            logits = model.forward_rs(possible)[0]
-            flt = train_dict[pos[0][0].item()]
+            if flag == 'rs':
+                logits = model.forward_rs(possible)[0]
+            elif flag == '1p':
+                logits = model.forward_1p(possible)[0]
+            elif flag == '2p':
+                logits = model.forward_2p(possible)[0]
+            elif flag == '3p':
+                logits = model.forward_3p(possible)[0]
+            elif flag == '2i':
+                logits = model.forward_2i(possible)[0]
+            elif flag == '3i':
+                logits = model.forward_3i(possible)[0]
+            else:
+                raise ValueError
+            flt = train_dict[pos[0][-2].item()]
             rank = get_rank(pos, logits, flt)
             r.append(rank)
             rr.append(1/rank)
@@ -419,7 +430,6 @@ def evaluate(dataloader, model, device, train_dict):
     
     return r, rr, h1, h3, h10
 
-
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='../data/', type=str)
@@ -439,7 +449,7 @@ def parse_args(args=None):
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--tolerance', default=5, type=int)
-    parser.add_argument('--valid_interval', default=5, type=int)
+    parser.add_argument('--valid_interval', default=10, type=int)
     return parser.parse_args(args)
 
 if __name__ == '__main__':
@@ -462,11 +472,16 @@ if __name__ == '__main__':
     rs_dataset_train = RSDatasetTrain(N_user, N_item, train_dict, cfg)
     rs_dataset_test = RSDatasetTest(N_item, test_dict)
     lqa_dataset_1p_train = LQADatasetTrain(N_item, train_1p, cfg)
+    lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg)
     lqa_dataset_2p_train = LQADatasetTrain(N_item, train_2p, cfg)
+    lqa_dataset_2p_test = LQADatasetTest(N_item, test_2p, cfg)
     lqa_dataset_3p_train = LQADatasetTrain(N_item, train_3p, cfg)
+    lqa_dataset_3p_test = LQADatasetTest(N_item, test_3p, cfg)
     lqa_dataset_2i_train = LQADatasetTrain(N_item, train_2i, cfg)
+    lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg)
     lqa_dataset_3i_train = LQADatasetTrain(N_item, train_3i, cfg)
-
+    lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg)
+    
     kge_dataloader = torch.utils.data.DataLoader(dataset=kge_dataset,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
@@ -480,32 +495,57 @@ if __name__ == '__main__':
     rs_dataloader_test = torch.utils.data.DataLoader(dataset=rs_dataset_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
-                                                shuffle=True,
+                                                shuffle=False,
                                                 drop_last=True)
     lqa_dataloader_1p_train = torch.utils.data.DataLoader(dataset=lqa_dataset_1p_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
                                                 drop_last=True)
+    lqa_dataloader_1p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_1p_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=True)
     lqa_dataloader_2p_train = torch.utils.data.DataLoader(dataset=lqa_dataset_2p_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
+                                                drop_last=True)
+    lqa_dataloader_2p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_2p_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
                                                 drop_last=True)
     lqa_dataloader_3p_train = torch.utils.data.DataLoader(dataset=lqa_dataset_3p_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
                                                 drop_last=True)
+    lqa_dataloader_3p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_3p_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=True)
     lqa_dataloader_2i_train = torch.utils.data.DataLoader(dataset=lqa_dataset_2i_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
                                                 drop_last=True)
+    lqa_dataloader_2i_test = torch.utils.data.DataLoader(dataset=lqa_dataset_2i_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=True)
     lqa_dataloader_3i_train = torch.utils.data.DataLoader(dataset=lqa_dataset_3i_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
+                                                drop_last=True)
+    lqa_dataloader_3i_test = torch.utils.data.DataLoader(dataset=lqa_dataset_3i_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
                                                 drop_last=True)
     
     model = LogicRecModel(N_user, N_ent, N_rel, cfg)
@@ -516,10 +556,23 @@ if __name__ == '__main__':
         rs_dataloader_train = tqdm.tqdm(rs_dataloader_train)
         rs_dataloader_test = tqdm.tqdm(rs_dataloader_test)
         lqa_dataloader_1p_train = tqdm.tqdm(lqa_dataloader_1p_train)
+        lqa_dataloader_1p_test = tqdm.tqdm(lqa_dataloader_1p_test)
         lqa_dataloader_2p_train = tqdm.tqdm(lqa_dataloader_2p_train)
+        lqa_dataloader_2p_test = tqdm.tqdm(lqa_dataloader_2p_test)
         lqa_dataloader_3p_train = tqdm.tqdm(lqa_dataloader_3p_train)
+        lqa_dataloader_3p_test = tqdm.tqdm(lqa_dataloader_3p_test)
         lqa_dataloader_2i_train = tqdm.tqdm(lqa_dataloader_2i_train)
+        lqa_dataloader_2i_test = tqdm.tqdm(lqa_dataloader_2i_test)
         lqa_dataloader_3i_train = tqdm.tqdm(lqa_dataloader_3i_train)
+        lqa_dataloader_3i_test = tqdm.tqdm(lqa_dataloader_3i_test)
+    test_dataloaders = [rs_dataloader_test, 
+                        lqa_dataloader_1p_test, 
+                        lqa_dataloader_2p_test,
+                        lqa_dataloader_3p_test,
+                        lqa_dataloader_2i_test,
+                        lqa_dataloader_3i_test
+                        ]
+    query_types = ['rs', '1p', '2p', '3p', '2i', '3i']
     
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
     
@@ -562,9 +615,15 @@ if __name__ == '__main__':
         print(f'Loss: {round(sum(avg_loss) / len(avg_loss), 4)}')
         
         if (epoch + 1) % cfg.valid_interval == 0:
-            r, rr, h1, h3, h10 = evaluate(rs_dataloader_test, model, device, train_dict)
-            if rr >= max_value:
-                max_value = rr
+            mmrr = []
+            for i in range(len(query_types)):
+                flag = query_types[i]
+                print(f'{flag}:')
+                r, rr, h1, h3, h10 = evaluate(test_dataloaders[i], model, device, train_dict, flag)
+                mmrr.append(rr)
+            value = sum(mmrr) / len(mmrr)
+            if value >= max_value:
+                max_value = value
                 tolerance = cfg.tolerance
             else:
                 tolerance -= 1
