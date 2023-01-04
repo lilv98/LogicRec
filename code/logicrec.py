@@ -55,7 +55,7 @@ def read_data(path):
     print(f'N_ent: {N_ent}')
 
     kg = []
-    with open(path + '/input/kg_train.txt') as f:
+    with open(path + '/input/kg.txt') as f:
         for line in f:
             line = line.strip('\n').split(' ')
             kg.append([int(line[0]), int(line[1]), int(line[2])])
