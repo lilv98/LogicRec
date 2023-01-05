@@ -75,7 +75,7 @@ def read_data(path):
             
     assert len(set(test_dict.keys()) | set(train_dict.keys())) == len(train_dict)
     N_user = len(train_dict)
-    return N_rel, N_item, N_ent, N_user, kg, train_dict, test_dict
+    return N_rel, N_item, N_ent, N_user, kg, train_dict
 
 class KGEDataset(torch.utils.data.Dataset):
     def __init__(self, N_ent, data, cfg):
@@ -96,7 +96,7 @@ class KGEDataset(torch.utils.data.Dataset):
         sample = torch.cat([torch.tensor([head, rel, tail]).unsqueeze(0), neg_t, neg_h], dim=0)
         return sample
 
-class RSDatasetTrain(torch.utils.data.Dataset):
+class RSDataset(torch.utils.data.Dataset):
     def __init__(self, N_user, N_item, data, cfg):
         super().__init__()
         self.N_user = N_user
@@ -123,29 +123,6 @@ class RSDatasetTrain(torch.utils.data.Dataset):
         neg_u = torch.cat([neg_user, item.unsqueeze(dim=0).expand(self.num_ng // 2, 1)], dim=1)
         sample = torch.cat([torch.tensor([user, item]).unsqueeze(dim=0), neg_i, neg_u], dim=0)
         return sample
-
-class RSDatasetTest(torch.utils.data.Dataset):
-    def __init__(self, N_item, data):
-        super().__init__()
-        self.N_item = N_item
-        self.data = self._get_data(data)
-
-    def _get_data(self, data):
-        ret = []
-        for user in data:
-            items = data[user]
-            for item in items:
-                ret.append([user, item])
-        return torch.tensor(ret)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        pos = self.data[idx]
-        users = pos[0].unsqueeze(dim=0).expand(self.N_item, 1)
-        items = torch.arange(self.N_item).unsqueeze(dim=1)
-        return torch.cat([users, items], dim=-1), pos
 
 class LQADatasetTrain(torch.utils.data.Dataset):
     def __init__(self, N_item, data, cfg):
@@ -177,10 +154,11 @@ class LQADatasetTrain(torch.utils.data.Dataset):
         return sample
 
 class LQADatasetTest(torch.utils.data.Dataset):
-    def __init__(self, N_item, data, cfg):
+    def __init__(self, N_item, data, cfg, stage):
         super().__init__()
         self.N_item = N_item
         self.num_ng = cfg.num_ng
+        self.stage = stage
         self.data = self._get_data(data)
 
     def _get_data(self, data):
@@ -188,7 +166,12 @@ class LQADatasetTest(torch.utils.data.Dataset):
         for query in data:
             query_as_list = list(query)
             ret.append(query_as_list)
-        return torch.tensor(ret)
+        if self.stage == 'valid':
+            return torch.tensor(ret)[:len(ret) // 2]
+        elif self.stage == 'test':
+            return torch.tensor(ret)[len(ret) // 2:]
+        else:
+            raise ValueError
 
     def __len__(self):
         return len(self.data)
@@ -523,7 +506,7 @@ if __name__ == '__main__':
     seed_everything(cfg.seed)
     device = torch.device(f'cuda:{cfg.gpu}' if torch.cuda.is_available() else 'cpu')
     input_path = cfg.data_root + cfg.dataset
-    N_rel, N_item, N_ent, N_user, kg, train_dict, test_dict = read_data(input_path)
+    N_rel, N_item, N_ent, N_user, kg, train_dict = read_data(input_path)
     
     train_1p, test_1p = load_obj(input_path + '/input/1p_train.pkl'), load_obj(input_path + '/input/1p_test.pkl')
     train_2p, test_2p = load_obj(input_path + '/input/2p_train.pkl'), load_obj(input_path + '/input/2p_test.pkl')
@@ -532,38 +515,42 @@ if __name__ == '__main__':
     train_3i, test_3i = load_obj(input_path + '/input/3i_train.pkl'), load_obj(input_path + '/input/3i_test.pkl')
     
     kge_dataset = KGEDataset(N_ent, kg, cfg)
-    rs_dataset_train = RSDatasetTrain(N_user, N_item, train_dict, cfg)
-    rs_dataset_test = RSDatasetTest(N_item, test_dict)
+    rs_dataset = RSDataset(N_user, N_item, train_dict, cfg)
     lqa_dataset_1p_train = LQADatasetTrain(N_item, train_1p, cfg)
-    lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg)
+    lqa_dataset_1p_valid = LQADatasetTest(N_item, test_1p, cfg, stage='valid')
+    lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg, stage='test')
     lqa_dataset_2p_train = LQADatasetTrain(N_item, train_2p, cfg)
-    lqa_dataset_2p_test = LQADatasetTest(N_item, test_2p, cfg)
+    lqa_dataset_2p_valid = LQADatasetTest(N_item, test_2p, cfg, stage='valid')
+    lqa_dataset_2p_test = LQADatasetTest(N_item, test_2p, cfg, stage='test')
     lqa_dataset_3p_train = LQADatasetTrain(N_item, train_3p, cfg)
-    lqa_dataset_3p_test = LQADatasetTest(N_item, test_3p, cfg)
+    lqa_dataset_3p_valid = LQADatasetTest(N_item, test_3p, cfg, stage='valid')
+    lqa_dataset_3p_test = LQADatasetTest(N_item, test_3p, cfg, stage='test')
     lqa_dataset_2i_train = LQADatasetTrain(N_item, train_2i, cfg)
-    lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg)
+    lqa_dataset_2i_valid = LQADatasetTest(N_item, test_2i, cfg, stage='valid')
+    lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg, stage='test')
     lqa_dataset_3i_train = LQADatasetTrain(N_item, train_3i, cfg)
-    lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg)
+    lqa_dataset_3i_valid = LQADatasetTest(N_item, test_3i, cfg, stage='valid')
+    lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg, stage='test')
     
     kge_dataloader = torch.utils.data.DataLoader(dataset=kge_dataset,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
                                                 drop_last=True)
-    rs_dataloader_train = torch.utils.data.DataLoader(dataset=rs_dataset_train,
+    rs_dataloader = torch.utils.data.DataLoader(dataset=rs_dataset,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
-                                                drop_last=True)
-    rs_dataloader_test = torch.utils.data.DataLoader(dataset=rs_dataset_test,
-                                                batch_size=1,
-                                                num_workers=cfg.num_workers,
-                                                shuffle=False,
                                                 drop_last=True)
     lqa_dataloader_1p_train = torch.utils.data.DataLoader(dataset=lqa_dataset_1p_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
+                                                drop_last=True)
+    lqa_dataloader_1p_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_1p_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
                                                 drop_last=True)
     lqa_dataloader_1p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_1p_test,
                                                 batch_size=1,
@@ -575,6 +562,11 @@ if __name__ == '__main__':
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
                                                 drop_last=True)
+    lqa_dataloader_2p_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_2p_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=True)
     lqa_dataloader_2p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_2p_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
@@ -584,6 +576,11 @@ if __name__ == '__main__':
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
+                                                drop_last=True)
+    lqa_dataloader_3p_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_3p_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
                                                 drop_last=True)
     lqa_dataloader_3p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_3p_test,
                                                 batch_size=1,
@@ -595,6 +592,11 @@ if __name__ == '__main__':
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
                                                 drop_last=True)
+    lqa_dataloader_2i_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_2i_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=True)
     lqa_dataloader_2i_test = torch.utils.data.DataLoader(dataset=lqa_dataset_2i_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
@@ -604,6 +606,11 @@ if __name__ == '__main__':
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=True,
+                                                drop_last=True)
+    lqa_dataloader_3i_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_3i_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
                                                 drop_last=True)
     lqa_dataloader_3i_test = torch.utils.data.DataLoader(dataset=lqa_dataset_3i_test,
                                                 batch_size=1,
@@ -616,18 +623,28 @@ if __name__ == '__main__':
     
     if cfg.verbose:
         kge_dataloader = tqdm.tqdm(kge_dataloader)
-        rs_dataloader_train = tqdm.tqdm(rs_dataloader_train)
-        rs_dataloader_test = tqdm.tqdm(rs_dataloader_test)
+        rs_dataloader = tqdm.tqdm(rs_dataloader)
         lqa_dataloader_1p_train = tqdm.tqdm(lqa_dataloader_1p_train)
+        lqa_dataloader_1p_valid = tqdm.tqdm(lqa_dataloader_1p_valid)
         lqa_dataloader_1p_test = tqdm.tqdm(lqa_dataloader_1p_test)
         lqa_dataloader_2p_train = tqdm.tqdm(lqa_dataloader_2p_train)
+        lqa_dataloader_2p_valid = tqdm.tqdm(lqa_dataloader_2p_valid)
         lqa_dataloader_2p_test = tqdm.tqdm(lqa_dataloader_2p_test)
         lqa_dataloader_3p_train = tqdm.tqdm(lqa_dataloader_3p_train)
+        lqa_dataloader_3p_valid = tqdm.tqdm(lqa_dataloader_3p_valid)
         lqa_dataloader_3p_test = tqdm.tqdm(lqa_dataloader_3p_test)
         lqa_dataloader_2i_train = tqdm.tqdm(lqa_dataloader_2i_train)
+        lqa_dataloader_2i_valid = tqdm.tqdm(lqa_dataloader_2i_valid)
         lqa_dataloader_2i_test = tqdm.tqdm(lqa_dataloader_2i_test)
         lqa_dataloader_3i_train = tqdm.tqdm(lqa_dataloader_3i_train)
+        lqa_dataloader_3i_valid = tqdm.tqdm(lqa_dataloader_3i_valid)
         lqa_dataloader_3i_test = tqdm.tqdm(lqa_dataloader_3i_test)
+    valid_dataloaders = [lqa_dataloader_1p_valid, 
+                        lqa_dataloader_2p_valid,
+                        lqa_dataloader_3p_valid,
+                        lqa_dataloader_2i_valid,
+                        lqa_dataloader_3i_valid
+                        ]
     test_dataloaders = [lqa_dataloader_1p_test, 
                         lqa_dataloader_2p_test,
                         lqa_dataloader_3p_test,
@@ -645,7 +662,7 @@ if __name__ == '__main__':
         model.train()
         avg_loss = []
         for batch in zip(kge_dataloader, 
-                         rs_dataloader_train,
+                         rs_dataloader,
                          lqa_dataloader_1p_train,
                          lqa_dataloader_2p_train,
                          lqa_dataloader_3p_train,
@@ -677,11 +694,12 @@ if __name__ == '__main__':
         print(f'Loss: {round(sum(avg_loss) / len(avg_loss), 4)}')
         
         if (epoch + 1) % cfg.valid_interval == 0:
+            print('Validating...')
             mmrr = []
             for i in range(len(query_types)):
                 flag = query_types[i]
                 print(f'{flag}:')
-                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(test_dataloaders[i], model, device, train_dict, flag)
+                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(valid_dataloaders[i], model, device, train_dict, flag)
                 mmrr.append(rr)
             value = sum(mmrr) / len(mmrr)
             if value >= max_value:
@@ -691,4 +709,9 @@ if __name__ == '__main__':
                 tolerance -= 1
 
         if (tolerance == 0) or ((epoch + 1) == cfg.max_epochs):
+            print('Testing...')
+            for i in range(len(query_types)):
+                flag = query_types[i]
+                print(f'{flag}:')
+                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(test_dataloaders[i], model, device, train_dict, flag)
             break
