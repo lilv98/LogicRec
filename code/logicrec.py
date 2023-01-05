@@ -220,7 +220,7 @@ class LogicRecModel(torch.nn.Module):
     def __init__(self, N_user, N_ent, N_rel, cfg):
         super().__init__()
         self.emb_dim = cfg.emb_dim
-        self.gamma = cfg.gamma
+        self.norm = cfg.norm
         self.kge_base_model = cfg.kge_base_model
         self.rs_base_model = cfg.rs_base_model
         self.lqa_base_model = cfg.lqa_base_model
@@ -237,12 +237,6 @@ class LogicRecModel(torch.nn.Module):
             torch.nn.init.xavier_uniform_(self.fusion_fc_1.weight.data)
             torch.nn.init.xavier_uniform_(self.fusion_fc_2.weight.data)
 
-    def _DistMult(self, h_emb, r_emb, t_emb):
-        return (h_emb * r_emb * t_emb).sum(dim=-1)
-    
-    def _BPRMF(self, u_emb, i_emb):
-        return (u_emb * i_emb).sum(dim=-1)
-
     def _projection(self, e_emb, r_emb):
         if self.lqa_base_model == 'GQE':
             return e_emb + r_emb
@@ -256,10 +250,10 @@ class LogicRecModel(torch.nn.Module):
             raise ValueError
 
     def _lqa(self, q_emb, a_emb):
-        if self.lqa_base_model == 'GQE':
-            return self.gamma - torch.norm(q_emb - a_emb, p=1, dim=-1)
+        if self.norm != 0:
+            return - torch.norm(q_emb - a_emb, p=self.norm, dim=-1)
         else:
-            raise ValueError
+            return (q_emb * a_emb).sum(dim=-1)
     
     def _fusion(self, e_emb, u_emb):
         x = torch.cat([e_emb, u_emb], dim=-1)
@@ -272,18 +266,19 @@ class LogicRecModel(torch.nn.Module):
         h_emb = self.e_embedding(data[:, :, 0])
         r_emb = self.r_embedding(data[:, :, 1])
         t_emb = self.e_embedding(data[:, :, 2])
-        if self.kge_base_model == 'DistMult':
-            return self._DistMult(h_emb, r_emb, t_emb)
+        if self.norm != 0:
+            return - torch.norm(h_emb + r_emb - t_emb, p=self.norm, dim=-1)
         else:
-            raise ValueError
+            return ((h_emb + r_emb) * t_emb).sum(dim=-1)
 
     def forward_rs(self, data):
         u_emb = self.u_embedding(data[:, :, 0])
+        r_emb = self.r_embedding.weight[-1]
         i_emb = self.e_embedding(data[:, :, 1])
-        if self.rs_base_model == 'BPRMF':
-            return self._BPRMF(u_emb, i_emb)
+        if self.norm != 0:
+            return - torch.norm(u_emb + r_emb - i_emb, p=self.norm, dim=-1)
         else:
-            raise ValueError
+            return ((u_emb + r_emb) * i_emb).sum(dim=-1)
     
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -488,7 +483,7 @@ def parse_args(args=None):
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
-    parser.add_argument('--gamma', default=12, type=float)
+    parser.add_argument('--norm', default=0, type=int)
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
     parser.add_argument('--fuse', default=1, type=int)
@@ -617,14 +612,13 @@ if __name__ == '__main__':
         lqa_dataloader_2i_test = tqdm.tqdm(lqa_dataloader_2i_test)
         lqa_dataloader_3i_train = tqdm.tqdm(lqa_dataloader_3i_train)
         lqa_dataloader_3i_test = tqdm.tqdm(lqa_dataloader_3i_test)
-    test_dataloaders = [rs_dataloader_test, 
-                        lqa_dataloader_1p_test, 
+    test_dataloaders = [lqa_dataloader_1p_test, 
                         lqa_dataloader_2p_test,
                         lqa_dataloader_3p_test,
                         lqa_dataloader_2i_test,
                         lqa_dataloader_3i_test
                         ]
-    query_types = ['rs', '1p', '2p', '3p', '2i', '3i']
+    query_types = ['1p', '2p', '3p', '2i', '3i']
     
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
     
