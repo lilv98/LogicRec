@@ -408,7 +408,6 @@ class LogicRecModel(torch.nn.Module):
             raise ValueError
         return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
 
-
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
     rank = (ranking == pos[0, -1]).nonzero().item() + 1
@@ -419,12 +418,28 @@ def get_rank(pos, logits, flt):
                 rank -= 1
     return rank
 
+def ndcg(true, rank, k):
+    pred = torch.zeros(k)
+    discount = 1 / torch.log2(torch.arange(k) + 2)
+    if rank > k:
+        return 0
+    else:
+        pred[i - 1] = 1
+        idcg = (true * discount).sum()
+        dcg = (pred * discount).sum()
+        return (idcg / dcg).item()
+        
 def evaluate(dataloader, model, device, train_dict, flag):
     r = []
     rr = []
-    h1 = []
-    h3 = []
     h10 = []
+    h20 = []
+    ndcg10 = []
+    ndcg20 = []
+    true_10 = torch.zeros(10)
+    true_10[0] = 1
+    true_20 = torch.zeros(20)
+    true_20[0] = 1
     model.eval()
     with torch.no_grad():
         for possible, pos in dataloader:
@@ -447,34 +462,35 @@ def evaluate(dataloader, model, device, train_dict, flag):
             rank = get_rank(pos, logits, flt)
             r.append(rank)
             rr.append(1/rank)
-            if rank == 1:
-                h1.append(1)
-            else:
-                h1.append(0)
-            if rank <= 3:
-                h3.append(1)
-            else:
-                h3.append(0)
             if rank <= 10:
                 h10.append(1)
             else:
                 h10.append(0)
+            if rank <= 20:
+                h20.append(1)
+            else:
+                h20.append(0)
+
+            ndcg10.append(ndcg(true_10, rank, 10))
+            ndcg20.append(ndcg(true_20, rank, 20))
     
-    results = [r, rr, h1, h3, h10]
+    results = [r, rr, h10, h20, ndcg10, ndcg20]
     
     r = int(sum(results[0])/len(results[0]))
     rr = round(sum(results[1])/len(results[1]), 3)
-    h1 = round(sum(results[2])/len(results[2]), 3)
-    h3 = round(sum(results[3])/len(results[3]), 3)
-    h10 = round(sum(results[4])/len(results[4]), 3)
+    h10 = round(sum(results[2])/len(results[2]), 3)
+    h20 = round(sum(results[3])/len(results[3]), 3)
+    ndcg10 = round(sum(results[4])/len(results[4]), 3)
+    ndcg20 = round(sum(results[5])/len(results[5]), 3)
     
-    print(r, flush=True)
-    print(rr, flush=True)
-    print(h1, flush=True)
-    print(h3, flush=True)
-    print(h10, flush=True)
+    print(f'MR: {r}', flush=True)
+    print(f'MRR: {rr}', flush=True)
+    print(f'Hit@10: {h10}', flush=True)
+    print(f'Hit@20: {h20}', flush=True)
+    print(f'nDCG@10: {ndcg10}', flush=True)
+    print(f'nDCG@20: {ndcg20}', flush=True)
     
-    return r, rr, h1, h3, h10
+    return r, rr, h10, h20, ndcg10, ndcg20
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
@@ -665,7 +681,7 @@ if __name__ == '__main__':
             for i in range(len(query_types)):
                 flag = query_types[i]
                 print(f'{flag}:')
-                r, rr, h1, h3, h10 = evaluate(test_dataloaders[i], model, device, train_dict, flag)
+                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(test_dataloaders[i], model, device, train_dict, flag)
                 mmrr.append(rr)
             value = sum(mmrr) / len(mmrr)
             if value >= max_value:
