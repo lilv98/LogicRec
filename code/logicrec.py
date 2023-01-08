@@ -475,6 +475,11 @@ def evaluate(dataloader, model, device, train_dict, flag):
     
     return r, rr, h10, h20, ndcg10, ndcg20
 
+def iterator(dataloader):
+    while True:
+        for data in dataloader:
+            yield data
+
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='../data/', type=str)
@@ -486,7 +491,7 @@ def parse_args(args=None):
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
     parser.add_argument('--fuse', default=1, type=int)
-    parser.add_argument('--max_epochs', default=1000, type=int)
+    parser.add_argument('--max_steps', default=100000, type=int)
     parser.add_argument('--rs_base_model', default='BPRMF', type=str)
     parser.add_argument('--kge_base_model', default='DistMult', type=str)
     parser.add_argument('--lqa_base_model', default='GQE', type=str)
@@ -494,8 +499,8 @@ def parse_args(args=None):
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--tolerance', default=5, type=int)
-    parser.add_argument('--valid_interval', default=10, type=int)
+    parser.add_argument('--tolerance', default=3, type=int)
+    parser.add_argument('--valid_interval', default=1000, type=int)
     return parser.parse_args(args)
 
 if __name__ == '__main__':
@@ -551,12 +556,12 @@ if __name__ == '__main__':
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_1p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_1p_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_2p_train = torch.utils.data.DataLoader(dataset=lqa_dataset_2p_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
@@ -566,12 +571,12 @@ if __name__ == '__main__':
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_2p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_2p_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_3p_train = torch.utils.data.DataLoader(dataset=lqa_dataset_3p_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
@@ -581,12 +586,12 @@ if __name__ == '__main__':
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_3p_test = torch.utils.data.DataLoader(dataset=lqa_dataset_3p_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_2i_train = torch.utils.data.DataLoader(dataset=lqa_dataset_2i_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
@@ -596,12 +601,12 @@ if __name__ == '__main__':
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_2i_test = torch.utils.data.DataLoader(dataset=lqa_dataset_2i_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_3i_train = torch.utils.data.DataLoader(dataset=lqa_dataset_3i_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
@@ -611,32 +616,25 @@ if __name__ == '__main__':
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     lqa_dataloader_3i_test = torch.utils.data.DataLoader(dataset=lqa_dataset_3i_test,
                                                 batch_size=1,
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
-                                                drop_last=True)
+                                                drop_last=False)
     
     model = LogicRecModel(N_user, N_ent, N_rel, cfg)
     model = model.to(device)
     
     if cfg.verbose:
-        kge_dataloader = tqdm.tqdm(kge_dataloader)
-        rs_dataloader = tqdm.tqdm(rs_dataloader)
-        lqa_dataloader_1p_train = tqdm.tqdm(lqa_dataloader_1p_train)
         lqa_dataloader_1p_valid = tqdm.tqdm(lqa_dataloader_1p_valid)
         lqa_dataloader_1p_test = tqdm.tqdm(lqa_dataloader_1p_test)
-        lqa_dataloader_2p_train = tqdm.tqdm(lqa_dataloader_2p_train)
         lqa_dataloader_2p_valid = tqdm.tqdm(lqa_dataloader_2p_valid)
         lqa_dataloader_2p_test = tqdm.tqdm(lqa_dataloader_2p_test)
-        lqa_dataloader_3p_train = tqdm.tqdm(lqa_dataloader_3p_train)
         lqa_dataloader_3p_valid = tqdm.tqdm(lqa_dataloader_3p_valid)
         lqa_dataloader_3p_test = tqdm.tqdm(lqa_dataloader_3p_test)
-        lqa_dataloader_2i_train = tqdm.tqdm(lqa_dataloader_2i_train)
         lqa_dataloader_2i_valid = tqdm.tqdm(lqa_dataloader_2i_valid)
         lqa_dataloader_2i_test = tqdm.tqdm(lqa_dataloader_2i_test)
-        lqa_dataloader_3i_train = tqdm.tqdm(lqa_dataloader_3i_train)
         lqa_dataloader_3i_valid = tqdm.tqdm(lqa_dataloader_3i_valid)
         lqa_dataloader_3i_test = tqdm.tqdm(lqa_dataloader_3i_test)
     valid_dataloaders = [lqa_dataloader_1p_valid, 
@@ -652,48 +650,45 @@ if __name__ == '__main__':
                         lqa_dataloader_3i_test
                         ]
     query_types = ['1p', '2p', '3p', '2i', '3i']
+    kge_dataloader = iterator(kge_dataloader)
+    rs_dataloader = iterator(rs_dataloader)
+    lqa_dataloader_1p_train = iterator(lqa_dataloader_1p_train)
+    lqa_dataloader_2p_train = iterator(lqa_dataloader_2p_train)
+    lqa_dataloader_3p_train = iterator(lqa_dataloader_3p_train)
+    lqa_dataloader_2i_train = iterator(lqa_dataloader_2i_train)
+    lqa_dataloader_3i_train = iterator(lqa_dataloader_3i_train)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
     
+    if cfg.verbose:
+        ranger = tqdm.tqdm(range(cfg.max_steps))
+    else:
+        ranger = range(cfg.max_steps)
     tolerance = cfg.tolerance
     max_value = 0
-    for epoch in range(cfg.max_epochs):
-        print(f'Common -- Epoch {epoch + 1}:')
+    avg_loss = []
+    for step in ranger:
         model.train()
-        avg_loss = []
-        for batch in zip(kge_dataloader, 
-                         rs_dataloader,
-                         lqa_dataloader_1p_train,
-                         lqa_dataloader_2p_train,
-                         lqa_dataloader_3p_train,
-                         lqa_dataloader_2i_train,
-                         lqa_dataloader_3i_train
-                         ):
-            batch_kge = batch[0].to(device)
-            batch_rs = batch[1].to(device)
-            batch_1p = batch[2].to(device)
-            batch_2p = batch[3].to(device)
-            batch_3p = batch[4].to(device)
-            batch_2i = batch[5].to(device)
-            batch_3i = batch[6].to(device)
-            
-            loss_kge = model.get_loss(batch_kge, flag='kge')
-            loss_rs = model.get_loss(batch_rs, flag='rs')
-            loss_1p = model.get_loss(batch_1p, flag='1p')
-            loss_2p = model.get_loss(batch_2p, flag='2p')
-            loss_3p = model.get_loss(batch_3p, flag='3p')
-            loss_2i = model.get_loss(batch_2i, flag='2i')
-            loss_3i = model.get_loss(batch_3i, flag='3i')
-            
-            loss = loss_kge + loss_rs + loss_1p + loss_2p + loss_3p + loss_2i + loss_3i
-            
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            avg_loss.append(loss.item())
-        print(f'Loss: {round(sum(avg_loss) / len(avg_loss), 4)}')
         
-        if (epoch + 1) % cfg.valid_interval == 0:
+        loss_kge = model.get_loss(next(kge_dataloader).to(device), flag='kge')
+        loss_rs = model.get_loss(next(rs_dataloader).to(device), flag='rs')
+        loss_1p = model.get_loss(next(lqa_dataloader_1p_train).to(device), flag='1p')
+        loss_2p = model.get_loss(next(lqa_dataloader_2p_train).to(device), flag='2p')
+        loss_3p = model.get_loss(next(lqa_dataloader_3p_train).to(device), flag='3p')
+        loss_2i = model.get_loss(next(lqa_dataloader_2i_train).to(device), flag='2i')
+        loss_3i = model.get_loss(next(lqa_dataloader_3i_train).to(device), flag='3i')
+        
+        loss = loss_kge + loss_rs + loss_1p + loss_2p + loss_3p + loss_2i + loss_3i
+        
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        avg_loss.append(loss.item())
+        
+        if (step + 1) % cfg.valid_interval == 0:
+            print(f'Loss: {round(sum(avg_loss) / len(avg_loss), 4)}')
+            avg_loss = []
             print('Validating...')
             mmrr = []
             for i in range(len(query_types)):
@@ -708,7 +703,7 @@ if __name__ == '__main__':
             else:
                 tolerance -= 1
 
-        if (tolerance == 0) or ((epoch + 1) == cfg.max_epochs):
+        if (tolerance == 0) or ((step + 1) == cfg.max_steps):
             print('Testing...')
             for i in range(len(query_types)):
                 flag = query_types[i]
