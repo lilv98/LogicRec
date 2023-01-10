@@ -53,13 +53,6 @@ def read_data(path):
     print(f'N_rel: {N_rel}')
     print(f'N_item: {N_item}')
     print(f'N_ent: {N_ent}')
-
-    kg = []
-    with open(path + '/input/kg.txt') as f:
-        for line in f:
-            line = line.strip('\n').split(' ')
-            kg.append([int(line[0]), int(line[1]), int(line[2])])
-    kg = pd.DataFrame(kg, columns=['h', 'r', 't'])
     
     train_dict = {}
     with open(path + '/input/baseline_train.txt') as f:
@@ -75,54 +68,7 @@ def read_data(path):
             
     assert len(set(test_dict.keys()) | set(train_dict.keys())) == len(train_dict)
     N_user = len(train_dict)
-    return N_rel, N_item, N_ent, N_user, kg, train_dict
-
-class KGEDataset(torch.utils.data.Dataset):
-    def __init__(self, N_ent, data, cfg):
-        super().__init__()
-        self.N_ent = N_ent
-        self.num_ng = cfg.num_ng
-        self.data = torch.tensor(data.values)
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        head, rel, tail = self.data[idx]
-        negs = torch.tensor(np.random.choice(self.N_ent, self.num_ng))
-        neg_t, neg_h = negs[:self.num_ng // 2].unsqueeze(dim=1), negs[self.num_ng // 2:].unsqueeze(dim=1)
-        neg_t = torch.cat([torch.tensor([head, rel]).expand(self.num_ng // 2, -1), neg_t], dim=1)
-        neg_h = torch.cat([neg_h, torch.tensor([rel, tail]).expand(self.num_ng // 2, -1)], dim=1)
-        sample = torch.cat([torch.tensor([head, rel, tail]).unsqueeze(0), neg_t, neg_h], dim=0)
-        return sample
-
-class RSDataset(torch.utils.data.Dataset):
-    def __init__(self, N_user, N_item, data, cfg):
-        super().__init__()
-        self.N_user = N_user
-        self.N_item = N_item
-        self.num_ng = cfg.num_ng
-        self.data = self._get_data(data)
-
-    def _get_data(self, data):
-        ret = []
-        for user in data:
-            items = data[user]
-            for item in items:
-                ret.append([user, item])
-        return torch.tensor(ret)            
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        user, item = self.data[idx]
-        neg_user = torch.tensor(np.random.choice(self.N_user, self.num_ng // 2)).unsqueeze(dim=1)
-        neg_item = torch.tensor(np.random.choice(self.N_item, self.num_ng // 2)).unsqueeze(dim=1)
-        neg_i = torch.cat([user.unsqueeze(dim=0).expand(self.num_ng // 2, 1), neg_item], dim=1)
-        neg_u = torch.cat([neg_user, item.unsqueeze(dim=0).expand(self.num_ng // 2, 1)], dim=1)
-        sample = torch.cat([torch.tensor([user, item]).unsqueeze(dim=0), neg_i, neg_u], dim=0)
-        return sample
+    return N_rel, N_item, N_ent, N_user
 
 class LQADatasetTrain(torch.utils.data.Dataset):
     def __init__(self, N_item, data, cfg):
@@ -204,9 +150,7 @@ class LogicRecModel(torch.nn.Module):
         super().__init__()
         self.emb_dim = cfg.emb_dim
         self.norm = cfg.norm
-        self.kge_base_model = cfg.kge_base_model
-        self.rs_base_model = cfg.rs_base_model
-        self.lqa_base_model = cfg.lqa_base_model
+        self.base_model = cfg.base_model
         self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
         self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
         self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
@@ -214,20 +158,15 @@ class LogicRecModel(torch.nn.Module):
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
-        if cfg.fuse == 1:
-            self.fusion_fc_1 = torch.nn.Linear(self.emb_dim * 2, self.emb_dim // 2)
-            self.fusion_fc_2 = torch.nn.Linear(self.emb_dim // 2, self.emb_dim)
-            torch.nn.init.xavier_uniform_(self.fusion_fc_1.weight.data)
-            torch.nn.init.xavier_uniform_(self.fusion_fc_2.weight.data)
 
     def _projection(self, e_emb, r_emb):
-        if self.lqa_base_model == 'GQE':
+        if self.base_model == 'GQE':
             return e_emb + r_emb
         else:
             raise ValueError
 
     def _intersection(self, q_emb_1, q_emb_2):
-        if self.lqa_base_model == 'GQE':
+        if self.base_model == 'GQE':
             return self.basic_intersection(q_emb_1, q_emb_2)
         else:
             raise ValueError
@@ -238,46 +177,17 @@ class LogicRecModel(torch.nn.Module):
         else:
             return (q_emb * a_emb).sum(dim=-1)
     
-    def _fusion(self, e_emb, u_emb):
-        x = torch.cat([e_emb, u_emb], dim=-1)
-        x = self.fusion_fc_1(x)
-        x = torch.relu(x)
-        x = self.fusion_fc_2(x)
-        return x
-
-    def forward_kge(self, data):
-        h_emb = self.e_embedding(data[:, :, 0])
-        r_emb = self.r_embedding(data[:, :, 1])
-        t_emb = self.e_embedding(data[:, :, 2])
-        if self.norm != 0:
-            return - torch.norm(h_emb + r_emb - t_emb, p=self.norm, dim=-1)
-        else:
-            return ((h_emb + r_emb) * t_emb).sum(dim=-1)
-
-    def forward_rs(self, data):
-        u_emb = self.u_embedding(data[:, :, 0])
-        r_emb = self.r_embedding.weight[-1]
-        i_emb = self.e_embedding(data[:, :, 1])
-        if self.norm != 0:
-            return - torch.norm(u_emb + r_emb - i_emb, p=self.norm, dim=-1)
-        else:
-            return ((u_emb + r_emb) * i_emb).sum(dim=-1)
-    
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
         r_emb = self.r_embedding(data[:, 0, 1])
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
-        if cfg.fuse == 0:
-            ur_emb = self.r_embedding.weight[-1]
-            q_emb_1 = self._projection(e_emb, r_emb)
-            q_emb_2 = self._projection(u_emb, ur_emb)
-            q_emb = self._intersection(q_emb_1, q_emb_2)
-        elif cfg.fuse == 1:
-            e_emb = self._fusion(e_emb, u_emb)
-            q_emb = self._projection(e_emb, r_emb)
-        else:
-            raise ValueError
+
+        ur_emb = self.r_embedding.weight[-1]
+        q_emb_1 = self._projection(e_emb, r_emb)
+        q_emb_2 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_2p(self, data):
@@ -286,16 +196,12 @@ class LogicRecModel(torch.nn.Module):
         r_emb_2 = self.r_embedding(data[:, 0, 2])
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
-        if cfg.fuse == 0:
-            ur_emb = self.r_embedding.weight[-1]
-            q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
-            q_emb_2 = self._projection(u_emb, ur_emb)
-            q_emb = self._intersection(q_emb_1, q_emb_2)
-        elif cfg.fuse == 1:
-            e_emb = self._fusion(e_emb, u_emb)
-            q_emb = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
-        else:
-            raise ValueError
+
+        ur_emb = self.r_embedding.weight[-1]
+        q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
+        q_emb_2 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_3p(self, data):
@@ -305,16 +211,12 @@ class LogicRecModel(torch.nn.Module):
         r_emb_3 = self.r_embedding(data[:, 0, 3])
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
-        if cfg.fuse == 0:
-            ur_emb = self.r_embedding.weight[-1]
-            q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
-            q_emb_2 = self._projection(u_emb, ur_emb)
-            q_emb = self._intersection(q_emb_1, q_emb_2)
-        elif cfg.fuse == 1:
-            e_emb = self._fusion(e_emb, u_emb)
-            q_emb = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
-        else:
-            raise ValueError
+        
+        ur_emb = self.r_embedding.weight[-1]
+        q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+        q_emb_2 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_2i(self, data):
@@ -324,21 +226,14 @@ class LogicRecModel(torch.nn.Module):
         r_emb_2 = self.r_embedding(data[:, 0, 3])
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
-        if cfg.fuse == 0:
-            ur_emb = self.r_embedding.weight[-1]
-            q_emb_1 = self._projection(e_emb_1, r_emb_1)
-            q_emb_2 = self._projection(e_emb_2, r_emb_2)
-            q_emb_3 = self._projection(u_emb, ur_emb)
-            q_emb = self._intersection(q_emb_1, q_emb_2)
-            q_emb = self._intersection(q_emb, q_emb_3)
-        elif cfg.fuse == 1:
-            e_emb_1 = self._fusion(e_emb_1, u_emb)
-            e_emb_2 = self._fusion(e_emb_2, u_emb)
-            q_emb_1 = self._projection(e_emb_1, r_emb_1)
-            q_emb_2 = self._projection(e_emb_2, r_emb_2)
-            q_emb = self._intersection(q_emb_1, q_emb_2)
-        else:
-            raise ValueError
+
+        ur_emb = self.r_embedding.weight[-1]
+        q_emb_1 = self._projection(e_emb_1, r_emb_1)
+        q_emb_2 = self._projection(e_emb_2, r_emb_2)
+        q_emb_3 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+        q_emb = self._intersection(q_emb, q_emb_3)
+
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_3i(self, data):
@@ -350,34 +245,20 @@ class LogicRecModel(torch.nn.Module):
         r_emb_3 = self.r_embedding(data[:, 0, 5])
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
-        if cfg.fuse == 0:
-            ur_emb = self.r_embedding.weight[-1]
-            q_emb_1 = self._projection(e_emb_1, r_emb_1)
-            q_emb_2 = self._projection(e_emb_2, r_emb_2)
-            q_emb_3 = self._projection(e_emb_3, r_emb_3)
-            q_emb_4 = self._projection(u_emb, ur_emb)
-            q_emb = self._intersection(q_emb_1, q_emb_2)
-            q_emb = self._intersection(q_emb, q_emb_3)
-            q_emb = self._intersection(q_emb, q_emb_4)
-        elif cfg.fuse == 1:
-            e_emb_1 = self._fusion(e_emb_1, u_emb)
-            e_emb_2 = self._fusion(e_emb_2, u_emb)
-            e_emb_3 = self._fusion(e_emb_3, u_emb)
-            q_emb_1 = self._projection(e_emb_1, r_emb_1)
-            q_emb_2 = self._projection(e_emb_2, r_emb_2)
-            q_emb_3 = self._projection(e_emb_3, r_emb_3)
-            q_emb = self._intersection(q_emb_1, q_emb_2)
-            q_emb = self._intersection(q_emb, q_emb_3)
-        else:
-            raise ValueError
+
+        ur_emb = self.r_embedding.weight[-1]
+        q_emb_1 = self._projection(e_emb_1, r_emb_1)
+        q_emb_2 = self._projection(e_emb_2, r_emb_2)
+        q_emb_3 = self._projection(e_emb_3, r_emb_3)
+        q_emb_4 = self._projection(u_emb, ur_emb)
+        q_emb = self._intersection(q_emb_1, q_emb_2)
+        q_emb = self._intersection(q_emb, q_emb_3)
+        q_emb = self._intersection(q_emb, q_emb_4)
+
         return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
 
     def get_loss(self, data, flag):
-        if flag == 'kge':
-            logits = self.forward_kge(data)
-        elif flag == 'rs':
-            logits = self.forward_rs(data)
-        elif flag == '1p':
+        if flag == '1p':
             logits = self.forward_1p(data)
         elif flag == '2p':
             logits = self.forward_2p(data)
@@ -488,11 +369,8 @@ def parse_args(args=None):
     parser.add_argument('--norm', default=0, type=int)
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
-    parser.add_argument('--fuse', default=1, type=int)
     parser.add_argument('--max_steps', default=100000, type=int)
-    parser.add_argument('--rs_base_model', default='BPRMF', type=str)
-    parser.add_argument('--kge_base_model', default='DistMult', type=str)
-    parser.add_argument('--lqa_base_model', default='GQE', type=str)
+    parser.add_argument('--base_model', default='GQE', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
@@ -509,7 +387,7 @@ if __name__ == '__main__':
     seed_everything(cfg.seed)
     device = torch.device(f'cuda:{cfg.gpu}' if torch.cuda.is_available() else 'cpu')
     input_path = cfg.data_root + cfg.dataset
-    N_rel, N_item, N_ent, N_user, kg, train_dict = read_data(input_path)
+    N_rel, N_item, N_ent, N_user = read_data(input_path)
     
     train_1p, test_1p = load_obj(input_path + '/input/1p_train.pkl'), load_obj(input_path + '/input/1p_test.pkl')
     train_2p, test_2p = load_obj(input_path + '/input/2p_train.pkl'), load_obj(input_path + '/input/2p_test.pkl')
@@ -517,8 +395,6 @@ if __name__ == '__main__':
     train_2i, test_2i = load_obj(input_path + '/input/2i_train.pkl'), load_obj(input_path + '/input/2i_test.pkl')
     train_3i, test_3i = load_obj(input_path + '/input/3i_train.pkl'), load_obj(input_path + '/input/3i_test.pkl')
     
-    kge_dataset = KGEDataset(N_ent, kg, cfg)
-    rs_dataset = RSDataset(N_user, N_item, train_dict, cfg)
     lqa_dataset_1p_train = LQADatasetTrain(N_item, train_1p, cfg)
     lqa_dataset_1p_valid = LQADatasetTest(N_item, test_1p, cfg, stage='valid')
     lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg, stage='test')
@@ -535,16 +411,6 @@ if __name__ == '__main__':
     lqa_dataset_3i_valid = LQADatasetTest(N_item, test_3i, cfg, stage='valid')
     lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg, stage='test')
     
-    kge_dataloader = torch.utils.data.DataLoader(dataset=kge_dataset,
-                                                batch_size=cfg.bs,
-                                                num_workers=cfg.num_workers,
-                                                shuffle=True,
-                                                drop_last=True)
-    rs_dataloader = torch.utils.data.DataLoader(dataset=rs_dataset,
-                                                batch_size=cfg.bs,
-                                                num_workers=cfg.num_workers,
-                                                shuffle=True,
-                                                drop_last=True)
     lqa_dataloader_1p_train = torch.utils.data.DataLoader(dataset=lqa_dataset_1p_train,
                                                 batch_size=cfg.bs,
                                                 num_workers=cfg.num_workers,
@@ -648,8 +514,6 @@ if __name__ == '__main__':
                         lqa_dataloader_3i_test
                         ]
     query_types = ['1p', '2p', '3p', '2i', '3i']
-    kge_dataloader = iterator(kge_dataloader)
-    rs_dataloader = iterator(rs_dataloader)
     lqa_dataloader_1p_train = iterator(lqa_dataloader_1p_train)
     lqa_dataloader_2p_train = iterator(lqa_dataloader_2p_train)
     lqa_dataloader_3p_train = iterator(lqa_dataloader_3p_train)
@@ -667,16 +531,13 @@ if __name__ == '__main__':
     avg_loss = []
     for step in ranger:
         model.train()
-        
-        loss_kge = model.get_loss(next(kge_dataloader).to(device), flag='kge')
-        loss_rs = model.get_loss(next(rs_dataloader).to(device), flag='rs')
         loss_1p = model.get_loss(next(lqa_dataloader_1p_train).to(device), flag='1p')
         loss_2p = model.get_loss(next(lqa_dataloader_2p_train).to(device), flag='2p')
         loss_3p = model.get_loss(next(lqa_dataloader_3p_train).to(device), flag='3p')
         loss_2i = model.get_loss(next(lqa_dataloader_2i_train).to(device), flag='2i')
         loss_3i = model.get_loss(next(lqa_dataloader_3i_train).to(device), flag='3i')
         
-        loss = loss_kge + loss_rs + loss_1p + loss_2p + loss_3p + loss_2i + loss_3i
+        loss = loss_1p + loss_2p + loss_3p + loss_2i + loss_3i
         
         optimizer.zero_grad()
         loss.backward()
