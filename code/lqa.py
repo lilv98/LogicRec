@@ -68,7 +68,7 @@ def read_data(path):
             
     assert len(set(test_dict.keys()) | set(train_dict.keys())) == len(train_dict)
     N_user = len(train_dict)
-    return N_rel, N_item, N_ent, N_user
+    return N_rel, N_item, N_ent, N_user, train_dict
 
 class LQADatasetTrain(torch.utils.data.Dataset):
     def __init__(self, N_item, data, cfg):
@@ -128,8 +128,26 @@ class LQADatasetTest(torch.utils.data.Dataset):
         items = torch.arange(self.N_item).unsqueeze(dim=1)
         return torch.cat([queries, items], dim=-1), pos
 
-class BasicIntersection(torch.nn.Module):
+class CenterIntersection(torch.nn.Module):
 
+    def __init__(self, dim):
+        super(CenterIntersection, self).__init__()
+        self.dim = dim
+        self.layer1 = torch.nn.Linear(self.dim, self.dim)
+        self.layer2 = torch.nn.Linear(self.dim, self.dim)
+        torch.nn.init.xavier_uniform_(self.layer1.weight)
+        torch.nn.init.xavier_uniform_(self.layer2.weight)
+
+    def forward(self, embeddings):
+        layer1_act = torch.nn.functional.relu(self.layer1(embeddings)) 
+        # (batchsize, num_conj, dim)
+        attention = torch.nn.functional.softmax(self.layer2(layer1_act), dim=1) 
+        # (batchsize, num_conj, dim)
+        embedding = torch.sum(attention * embeddings, dim=1)
+        return embedding
+
+class BoxOffsetIntersection(torch.nn.Module):
+    
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
@@ -138,44 +156,55 @@ class BasicIntersection(torch.nn.Module):
         torch.nn.init.xavier_uniform_(self.layer1.weight)
         torch.nn.init.xavier_uniform_(self.layer2.weight)
 
-    def forward(self, q_emb_1, q_emb_2):
-        embeddings = torch.cat([q_emb_1.unsqueeze(dim=1), q_emb_2.unsqueeze(dim=1)], dim=1)
+    def forward(self, embeddings):
+        pdb.set_trace()
         layer1_act = torch.nn.functional.relu(self.layer1(embeddings))
-        attention = torch.nn.functional.softmax(self.layer2(layer1_act), dim=0)
-        return torch.sum(attention * embeddings, dim=1)
+        layer1_mean = torch.mean(layer1_act, dim=0) 
+        gate = torch.sigmoid(self.layer2(layer1_mean))
+        offset, _ = torch.min(embeddings, dim=0)
 
+        return offset * gate
 
 class LogicRecModel(torch.nn.Module):
     def __init__(self, N_user, N_ent, N_rel, cfg):
         super().__init__()
         self.emb_dim = cfg.emb_dim
-        self.norm = cfg.norm
+        self.gamma = cfg.gamma
         self.base_model = cfg.base_model
         self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
-        self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
+        self.r_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
         self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
-        self.basic_intersection = BasicIntersection(cfg.emb_dim)
+        self.center_net = CenterIntersection(cfg.emb_dim)
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
+        if self.base_model == 'box':
+            self.offset_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
+            self.offset_net = BoxOffsetIntersection(N_ent)
 
-    def _projection(self, e_emb, r_emb):
-        if self.base_model == 'GQE':
+    def _projection(self, e_emb, r_emb, offset_emb=None):
+        if self.base_model == 'vec':
             return e_emb + r_emb
+        elif self.base_model == 'box':
+            pdb.set_trace()
         else:
             raise ValueError
 
-    def _intersection(self, q_emb_1, q_emb_2):
-        if self.base_model == 'GQE':
-            return self.basic_intersection(q_emb_1, q_emb_2)
+    def _intersection(self, embs):
+        # (batchsize, n_conj, emb_dim)
+        if self.base_model == 'vec':
+            return self.center_net(embs)
         else:
             raise ValueError
-
-    def _lqa(self, q_emb, a_emb):
-        if self.norm != 0:
-            return - torch.norm(q_emb - a_emb, p=self.norm, dim=-1)
+        
+    def _cal_logit(self, q_emb, a_emb):
+        if self.base_model == 'vec':
+            # logit = (q_emb * a_emb).sum(dim=-1)
+            distance = q_emb - a_emb
+            logit = self.gamma - torch.norm(distance, p=1, dim=-1)
+            return logit
         else:
-            return (q_emb * a_emb).sum(dim=-1)
+            raise ValueError
     
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -184,11 +213,12 @@ class LogicRecModel(torch.nn.Module):
         a_emb = self.e_embedding(data[:, :, -1])
 
         ur_emb = self.r_embedding.weight[-1]
-        q_emb_1 = self._projection(e_emb, r_emb)
-        q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
+        q_emb_1 = self._projection(e_emb, r_emb, torch.zeros_like(e_emb))
+        q_emb_2 = self._projection(u_emb, ur_emb, torch.zeros_like(e_emb))
+        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                              q_emb_2.unsqueeze(dim=1)], dim=1))
 
-        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_2p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -200,9 +230,10 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1]
         q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
         q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
+        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                              q_emb_2.unsqueeze(dim=1)], dim=1))
 
-        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_3p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -215,9 +246,10 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1]
         q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
         q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
+        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                              q_emb_2.unsqueeze(dim=1)], dim=1))
 
-        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_2i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -231,10 +263,11 @@ class LogicRecModel(torch.nn.Module):
         q_emb_1 = self._projection(e_emb_1, r_emb_1)
         q_emb_2 = self._projection(e_emb_2, r_emb_2)
         q_emb_3 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
-        q_emb = self._intersection(q_emb, q_emb_3)
+        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                              q_emb_2.unsqueeze(dim=1), 
+                                              q_emb_3.unsqueeze(dim=1)], dim=1))
 
-        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
 
     def forward_3i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -251,11 +284,12 @@ class LogicRecModel(torch.nn.Module):
         q_emb_2 = self._projection(e_emb_2, r_emb_2)
         q_emb_3 = self._projection(e_emb_3, r_emb_3)
         q_emb_4 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(q_emb_1, q_emb_2)
-        q_emb = self._intersection(q_emb, q_emb_3)
-        q_emb = self._intersection(q_emb, q_emb_4)
+        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                              q_emb_2.unsqueeze(dim=1), 
+                                              q_emb_3.unsqueeze(dim=1),
+                                              q_emb_4.unsqueeze(dim=1)], dim=1))
 
-        return self._lqa(q_emb.unsqueeze(dim=1), a_emb)
+        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
 
     def get_loss(self, data, flag):
         if flag == '1p':
@@ -270,7 +304,9 @@ class LogicRecModel(torch.nn.Module):
             logits = self.forward_3i(data)
         else:
             raise ValueError
-        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+        
+        # return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+        return ( - torch.nn.functional.logsigmoid(logits[:, 0]).mean() - torch.log(1 - torch.sigmoid(logits[:, 1:]) + 1e-10).mean()) / 2
 
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
@@ -365,12 +401,13 @@ def parse_args(args=None):
     parser.add_argument('--dataset', default='amazon-book', type=str)
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
+    parser.add_argument('--gamma', default=12, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
-    parser.add_argument('--norm', default=0, type=int)
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
     parser.add_argument('--max_steps', default=100000, type=int)
-    parser.add_argument('--base_model', default='GQE', type=str)
+    # vec, box, beta, gamma, fuzzy, cqd
+    parser.add_argument('--base_model', default='vec', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
@@ -387,7 +424,7 @@ if __name__ == '__main__':
     seed_everything(cfg.seed)
     device = torch.device(f'cuda:{cfg.gpu}' if torch.cuda.is_available() else 'cpu')
     input_path = cfg.data_root + cfg.dataset
-    N_rel, N_item, N_ent, N_user = read_data(input_path)
+    N_rel, N_item, N_ent, N_user, train_dict = read_data(input_path)
     
     train_1p, test_1p = load_obj(input_path + '/input/1p_train.pkl'), load_obj(input_path + '/input/1p_test.pkl')
     train_2p, test_2p = load_obj(input_path + '/input/2p_train.pkl'), load_obj(input_path + '/input/2p_test.pkl')
