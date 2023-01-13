@@ -164,6 +164,56 @@ class BoxOffsetIntersection(torch.nn.Module):
         offset, _ = torch.min(embeddings, dim=1)
         return offset * gate
 
+class Regularizer():
+    def __init__(self, base_add, min_val, max_val):
+        self.base_add = base_add
+        self.min_val = min_val
+        self.max_val = max_val
+
+    def __call__(self, entity_embedding):
+        return torch.clamp(entity_embedding + self.base_add, self.min_val, self.max_val)
+
+class BetaIntersection(torch.nn.Module):
+
+    def __init__(self, dim):
+        super(BetaIntersection, self).__init__()
+        self.dim = dim
+        self.layer1 = torch.nn.Linear(2 * self.dim, 2 * self.dim)
+        self.layer2 = torch.nn.Linear(2 * self.dim, self.dim)
+
+        torch.nn.init.xavier_uniform_(self.layer1.weight.data)
+        torch.nn.init.xavier_uniform_(self.layer2.weight.data)
+
+    def forward(self, alpha_embeddings, beta_embeddings):
+        all_embeddings = torch.cat([alpha_embeddings, beta_embeddings], dim=-1)
+        # (batch_size, num_conj, 2 * dim)
+        layer1_act = torch.nn.functional.relu(self.layer1(all_embeddings))
+        # (batch_size, num_conj, 2 * dim)
+        attention = torch.nn.functional.softmax(self.layer2(layer1_act), dim=1)
+        alpha_embedding = torch.sum(attention * alpha_embeddings, dim=1)
+        beta_embedding = torch.sum(attention * beta_embeddings, dim=1)
+
+        return alpha_embedding, beta_embedding
+
+class BetaProjection(torch.nn.Module):
+    
+    def __init__(self, emb_dim, regularizer):
+        super(BetaProjection, self).__init__()
+        self.emb_dim = emb_dim
+        self.layer1 = torch.nn.Linear(self.emb_dim * 2, self.emb_dim) 
+        self.layer2 = torch.nn.Linear(self.emb_dim, self.emb_dim) 
+        self.regularizer = regularizer
+        torch.nn.init.xavier_uniform_(self.layer1.weight.data)
+        torch.nn.init.xavier_uniform_(self.layer2.weight.data)
+
+    def forward(self, e_embedding, r_embedding):
+        x = torch.cat([e_embedding, r_embedding], dim=-1)
+        x = self.layer1(x)
+        x = torch.nn.functional.relu(x)
+        x = self.layer2(x)
+        x = self.regularizer(x)
+        return x
+
 class LogicRecModel(torch.nn.Module):
     
     def __init__(self, N_user, N_ent, N_rel, cfg):
@@ -172,26 +222,42 @@ class LogicRecModel(torch.nn.Module):
         self.gamma = cfg.gamma
         self.cen = cfg.cen
         self.base_model = cfg.base_model
-        self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
-        self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
-        self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
-        self.center_net = CenterIntersection(cfg.emb_dim)
-        torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
-        torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
-        torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
-        if self.base_model == 'box':
+        
+        if self.base_model == 'vec':
+            self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
+            self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
+            self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
+            self.center_net = CenterIntersection(cfg.emb_dim)
+
+        elif self.base_model == 'box':
+            self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
             self.offset_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
+            self.center_net = CenterIntersection(cfg.emb_dim)
             self.offset_net = BoxOffsetIntersection(cfg.emb_dim)
+        
+        elif self.base_model == 'beta':
+            self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim * 2)
+            self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim * 2)
+            self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim * 2)
+            self.regularizer = Regularizer(1, 0.05, 1e9)
+            self.center_net = BetaIntersection(cfg.emb_dim)
+            self.beta_proj_net = BetaProjection(cfg.emb_dim * 2, self.regularizer)
+        
+        torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
+        torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
+        torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
 
     def _projection(self, e_emb, r_emb):
         if self.base_model == 'vec':
             return e_emb + r_emb
         elif self.base_model == 'box':
             return e_emb + r_emb
+        elif self.base_model == 'beta':
+            return self.beta_proj_net(e_emb, r_emb)
         else:
             raise ValueError
         
-    def cal_logit_vec(self, a_emb, q_emb):
+    def _cal_logit_vec(self, a_emb, q_emb):
         distance = a_emb - q_emb
         logit = self.gamma - torch.norm(distance, p=1, dim=-1)
         return logit
@@ -202,28 +268,56 @@ class LogicRecModel(torch.nn.Module):
         distance_in = torch.min(delta, q_emb_offset)
         logit = self.gamma - torch.norm(distance_out, p=1, dim=-1) - self.cen * torch.norm(distance_in, p=1, dim=-1)
         return logit
-    
+
+    def _cal_logit_beta(self, a_emb, query_dist):
+        a_emb = self.regularizer(a_emb)
+        alpha_embedding, beta_embedding = torch.chunk(a_emb, 2, dim=-1)
+        entity_dist = torch.distributions.beta.Beta(alpha_embedding, beta_embedding)
+        logit = self.gamma - torch.norm(torch.distributions.kl.kl_divergence(entity_dist, query_dist), p=1, dim=-1)
+        return logit
+
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
         r_emb = self.r_embedding(data[:, 0, 1])
         u_emb = self.u_embedding(data[:, 0, -2])
-        a_emb = self.e_embedding(data[:, :, -1])
-
         ur_emb = self.r_embedding.weight[-1]
-        q_emb_1 = self._projection(e_emb, r_emb)
-        q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                           q_emb_2.unsqueeze(dim=1)], dim=1))
+        a_emb = self.e_embedding(data[:, :, -1])
+        
         if self.base_model == 'vec':
+            q_emb_1 = self._projection(e_emb, r_emb)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        
         elif self.base_model == 'box':
             r_emb_offset = self.offset_embedding(data[:, 0, 1])
             ur_emb_offset = self.offset_embedding.weight[-1]
+            
+            q_emb_1 = self._projection(e_emb, r_emb)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1)], dim=1))
+            
             q_emb_1_offset = self._projection(torch.zeros_like(r_emb), r_emb_offset)
             q_emb_2_offset = self._projection(torch.zeros_like(r_emb), ur_emb_offset)
             q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
                                                       q_emb_2_offset.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        
+        elif self.base_model == 'beta':
+            q_emb_1 = self._projection(e_emb, r_emb)
+            q_emb_2 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                     q_emb_2_alpha.unsqueeze(dim=1)], dim=1)
+            q_emb_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                    q_emb_2_beta.unsqueeze(dim=1)], dim=1)
+            q_emb_alpha, q_emb_beta = self.center_net(q_emb_alpha, q_emb_beta)
+            q_dist = torch.distributions.beta.Beta(q_emb_alpha.unsqueeze(dim=1), q_emb_beta.unsqueeze(dim=1))
+            return self._cal_logit_beta(a_emb, q_dist)
+        
         else:
             raise ValueError
 
@@ -232,20 +326,26 @@ class LogicRecModel(torch.nn.Module):
         r_emb_1 = self.r_embedding(data[:, 0, 1])
         r_emb_2 = self.r_embedding(data[:, 0, 2])
         u_emb = self.u_embedding(data[:, 0, -2])
-        a_emb = self.e_embedding(data[:, :, -1])
-
         ur_emb = self.r_embedding.weight[-1]
-        q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
-        q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                              q_emb_2.unsqueeze(dim=1)], dim=1))
+        a_emb = self.e_embedding(data[:, :, -1])
         
         if self.base_model == 'vec':
+            q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        
         elif self.base_model == 'box':
             r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
             r_emb_2_offset = self.offset_embedding(data[:, 0, 2])
             ur_emb_offset = self.offset_embedding.weight[-1]
+
+            q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1)], dim=1))
+            
             q_emb_1_offset = self._projection(
                                 self._projection(torch.zeros_like(r_emb_1), 
                                                 r_emb_1_offset), 
@@ -254,6 +354,20 @@ class LogicRecModel(torch.nn.Module):
             q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
                                                       q_emb_2_offset.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        
+        elif self.base_model == 'beta':
+            q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
+            q_emb_2 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                     q_emb_2_alpha.unsqueeze(dim=1)], dim=1)
+            q_emb_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                    q_emb_2_beta.unsqueeze(dim=1)], dim=1)
+            q_emb_alpha, q_emb_beta = self.center_net(q_emb_alpha, q_emb_beta)
+            q_dist = torch.distributions.beta.Beta(q_emb_alpha.unsqueeze(dim=1), q_emb_beta.unsqueeze(dim=1))
+            return self._cal_logit_beta(a_emb, q_dist)
+            
         else:
             raise ValueError
 
@@ -263,20 +377,27 @@ class LogicRecModel(torch.nn.Module):
         r_emb_2 = self.r_embedding(data[:, 0, 2])
         r_emb_3 = self.r_embedding(data[:, 0, 3])
         u_emb = self.u_embedding(data[:, 0, -2])
+        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
         
-        ur_emb = self.r_embedding.weight[-1]
-        q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
-        q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                              q_emb_2.unsqueeze(dim=1)], dim=1))
         if self.base_model == 'vec':
+            q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        
         elif self.base_model == 'box':
             r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
             r_emb_2_offset = self.offset_embedding(data[:, 0, 2])
             r_emb_3_offset = self.offset_embedding(data[:, 0, 3])
             ur_emb_offset = self.offset_embedding.weight[-1]
+            
+            q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+            q_emb_2 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1)], dim=1))
+            
             q_emb_1_offset = self._projection(
                                 self._projection(
                                     self._projection(torch.zeros_like(r_emb_1), 
@@ -287,6 +408,20 @@ class LogicRecModel(torch.nn.Module):
             q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
                                                       q_emb_2_offset.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        
+        elif self.base_model == 'beta':
+            q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+            q_emb_2 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                     q_emb_2_alpha.unsqueeze(dim=1)], dim=1)
+            q_emb_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                    q_emb_2_beta.unsqueeze(dim=1)], dim=1)
+            q_emb_alpha, q_emb_beta = self.center_net(q_emb_alpha, q_emb_beta)
+            q_dist = torch.distributions.beta.Beta(q_emb_alpha.unsqueeze(dim=1), q_emb_beta.unsqueeze(dim=1))
+            return self._cal_logit_beta(a_emb, q_dist)
+        
         else:
             raise ValueError
 
@@ -296,21 +431,30 @@ class LogicRecModel(torch.nn.Module):
         e_emb_2 = self.e_embedding(data[:, 0, 2])
         r_emb_2 = self.r_embedding(data[:, 0, 3])
         u_emb = self.u_embedding(data[:, 0, -2])
+        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
 
-        ur_emb = self.r_embedding.weight[-1]
-        q_emb_1 = self._projection(e_emb_1, r_emb_1)
-        q_emb_2 = self._projection(e_emb_2, r_emb_2)
-        q_emb_3 = self._projection(u_emb, ur_emb)
-        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                              q_emb_2.unsqueeze(dim=1), 
-                                              q_emb_3.unsqueeze(dim=1)], dim=1))
         if self.base_model == 'vec':
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1), 
+                                               q_emb_3.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        
         elif self.base_model == 'box':
             r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
             r_emb_2_offset = self.offset_embedding(data[:, 0, 3])
             ur_emb_offset = self.offset_embedding.weight[-1]
+            
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1), 
+                                               q_emb_3.unsqueeze(dim=1)], dim=1))
+            
             q_emb_1_offset = self._projection(torch.zeros_like(r_emb_1), r_emb_1_offset)
             q_emb_2_offset = self._projection(torch.zeros_like(r_emb_2), r_emb_2_offset)
             q_emb_3_offset = self._projection(torch.zeros_like(r_emb_1), ur_emb_offset)
@@ -318,6 +462,24 @@ class LogicRecModel(torch.nn.Module):
                                                       q_emb_2_offset.unsqueeze(dim=1),
                                                       q_emb_3_offset.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        
+        elif self.base_model == 'beta':
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            q_emb_3_alpha, q_emb_3_beta = torch.chunk(q_emb_3, 2, dim=-1)
+            q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                     q_emb_2_alpha.unsqueeze(dim=1),
+                                     q_emb_3_alpha.unsqueeze(dim=1)], dim=1)
+            q_emb_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                    q_emb_2_beta.unsqueeze(dim=1),
+                                    q_emb_3_beta.unsqueeze(dim=1)], dim=1)
+            q_emb_alpha, q_emb_beta = self.center_net(q_emb_alpha, q_emb_beta)
+            q_dist = torch.distributions.beta.Beta(q_emb_alpha.unsqueeze(dim=1), q_emb_beta.unsqueeze(dim=1))
+            return self._cal_logit_beta(a_emb, q_dist)
+        
         else:
             raise ValueError
 
@@ -329,24 +491,35 @@ class LogicRecModel(torch.nn.Module):
         e_emb_3 = self.e_embedding(data[:, 0, 4])
         r_emb_3 = self.r_embedding(data[:, 0, 5])
         u_emb = self.u_embedding(data[:, 0, -2])
+        ur_emb = self.r_embedding.weight[-1]
         a_emb = self.e_embedding(data[:, :, -1])
 
-        ur_emb = self.r_embedding.weight[-1]
-        q_emb_1 = self._projection(e_emb_1, r_emb_1)
-        q_emb_2 = self._projection(e_emb_2, r_emb_2)
-        q_emb_3 = self._projection(e_emb_3, r_emb_3)
-        q_emb_4 = self._projection(u_emb, ur_emb)
-        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                              q_emb_2.unsqueeze(dim=1), 
-                                              q_emb_3.unsqueeze(dim=1),
-                                              q_emb_4.unsqueeze(dim=1)], dim=1))
         if self.base_model == 'vec':
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(e_emb_3, r_emb_3)
+            q_emb_4 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1), 
+                                               q_emb_3.unsqueeze(dim=1),
+                                               q_emb_4.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        
         elif self.base_model == 'box':
             r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
             r_emb_2_offset = self.offset_embedding(data[:, 0, 3])
             r_emb_3_offset = self.offset_embedding(data[:, 0, 5])
             ur_emb_offset = self.offset_embedding.weight[-1]
+            
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(e_emb_3, r_emb_3)
+            q_emb_4 = self._projection(u_emb, ur_emb)
+            q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                               q_emb_2.unsqueeze(dim=1), 
+                                               q_emb_3.unsqueeze(dim=1),
+                                               q_emb_4.unsqueeze(dim=1)], dim=1))
+            
             q_emb_1_offset = self._projection(torch.zeros_like(r_emb_1), r_emb_1_offset)
             q_emb_2_offset = self._projection(torch.zeros_like(r_emb_2), r_emb_2_offset)
             q_emb_3_offset = self._projection(torch.zeros_like(r_emb_3), r_emb_3_offset)
@@ -356,6 +529,28 @@ class LogicRecModel(torch.nn.Module):
                                                       q_emb_3_offset.unsqueeze(dim=1),
                                                       q_emb_4_offset.unsqueeze(dim=1)], dim=1))
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        
+        elif self.base_model == 'beta':
+            q_emb_1 = self._projection(e_emb_1, r_emb_1)
+            q_emb_2 = self._projection(e_emb_2, r_emb_2)
+            q_emb_3 = self._projection(e_emb_3, r_emb_3)
+            q_emb_4 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            q_emb_3_alpha, q_emb_3_beta = torch.chunk(q_emb_3, 2, dim=-1)
+            q_emb_4_alpha, q_emb_4_beta = torch.chunk(q_emb_4, 2, dim=-1)
+            q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                     q_emb_2_alpha.unsqueeze(dim=1),
+                                     q_emb_3_alpha.unsqueeze(dim=1),
+                                     q_emb_4_alpha.unsqueeze(dim=1)], dim=1)
+            q_emb_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                    q_emb_2_beta.unsqueeze(dim=1),
+                                    q_emb_3_beta.unsqueeze(dim=1),
+                                    q_emb_4_beta.unsqueeze(dim=1)], dim=1)
+            q_emb_alpha, q_emb_beta = self.center_net(q_emb_alpha, q_emb_beta)
+            q_dist = torch.distributions.beta.Beta(q_emb_alpha.unsqueeze(dim=1), q_emb_beta.unsqueeze(dim=1))
+            return self._cal_logit_beta(a_emb, q_dist)
+        
         else:
             raise ValueError
 
@@ -373,7 +568,6 @@ class LogicRecModel(torch.nn.Module):
         else:
             raise ValueError
 
-        # return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
         return ( - torch.nn.functional.logsigmoid(logits[:, 0]).mean() - torch.log(1 - torch.sigmoid(logits[:, 1:]) + 1e-10).mean()) / 2
 
 def get_rank(pos, logits, flt):
@@ -395,7 +589,7 @@ def ndcg(true, rank, k):
         pred[i - 1] = 1
         idcg = (true * discount).sum()
         dcg = (pred * discount).sum()
-        return (idcg / dcg).item()
+        return (dcg / idcg).item()
         
 def evaluate(dataloader, model, device, train_dict, flag):
     r = []
@@ -449,12 +643,7 @@ def evaluate(dataloader, model, device, train_dict, flag):
     ndcg10 = round(sum(results[4])/len(results[4]), 3)
     ndcg20 = round(sum(results[5])/len(results[5]), 3)
     
-    print(f'MR: {r}', flush=True)
-    print(f'MRR: {rr}', flush=True)
-    print(f'Hit@10: {h10}', flush=True)
-    print(f'Hit@20: {h20}', flush=True)
-    print(f'nDCG@10: {ndcg10}', flush=True)
-    print(f'nDCG@20: {ndcg20}', flush=True)
+    print(f'MR: {r}, MRR: {rr}, Hit@10: {h10}, Hit@20: {h20}, nDCG@10: {ndcg10}, nDCG@20: {ndcg20}', flush=True)
     
     return r, rr, h10, h20, ndcg10, ndcg20
 
