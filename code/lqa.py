@@ -100,6 +100,7 @@ class LQADatasetTrain(torch.utils.data.Dataset):
         return sample
 
 class LQADatasetTest(torch.utils.data.Dataset):
+    
     def __init__(self, N_item, data, cfg, stage):
         super().__init__()
         self.N_item = N_item
@@ -135,8 +136,8 @@ class CenterIntersection(torch.nn.Module):
         self.dim = dim
         self.layer1 = torch.nn.Linear(self.dim, self.dim)
         self.layer2 = torch.nn.Linear(self.dim, self.dim)
-        torch.nn.init.xavier_uniform_(self.layer1.weight)
-        torch.nn.init.xavier_uniform_(self.layer2.weight)
+        torch.nn.init.xavier_uniform_(self.layer1.weight.data)
+        torch.nn.init.xavier_uniform_(self.layer2.weight.data)
 
     def forward(self, embeddings):
         layer1_act = torch.nn.functional.relu(self.layer1(embeddings)) 
@@ -153,58 +154,54 @@ class BoxOffsetIntersection(torch.nn.Module):
         self.dim = dim
         self.layer1 = torch.nn.Linear(self.dim, self.dim)
         self.layer2 = torch.nn.Linear(self.dim, self.dim)
-        torch.nn.init.xavier_uniform_(self.layer1.weight)
-        torch.nn.init.xavier_uniform_(self.layer2.weight)
+        torch.nn.init.xavier_uniform_(self.layer1.weight.data)
+        torch.nn.init.xavier_uniform_(self.layer2.weight.data)
 
     def forward(self, embeddings):
-        pdb.set_trace()
         layer1_act = torch.nn.functional.relu(self.layer1(embeddings))
-        layer1_mean = torch.mean(layer1_act, dim=0) 
+        layer1_mean = torch.mean(layer1_act, dim=1)
         gate = torch.sigmoid(self.layer2(layer1_mean))
-        offset, _ = torch.min(embeddings, dim=0)
-
+        offset, _ = torch.min(embeddings, dim=1)
         return offset * gate
 
 class LogicRecModel(torch.nn.Module):
+    
     def __init__(self, N_user, N_ent, N_rel, cfg):
         super().__init__()
         self.emb_dim = cfg.emb_dim
         self.gamma = cfg.gamma
+        self.cen = cfg.cen
         self.base_model = cfg.base_model
         self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
-        self.r_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
+        self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
         self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
         self.center_net = CenterIntersection(cfg.emb_dim)
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
         if self.base_model == 'box':
-            self.offset_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
-            self.offset_net = BoxOffsetIntersection(N_ent)
+            self.offset_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
+            self.offset_net = BoxOffsetIntersection(cfg.emb_dim)
 
-    def _projection(self, e_emb, r_emb, offset_emb=None):
+    def _projection(self, e_emb, r_emb):
         if self.base_model == 'vec':
             return e_emb + r_emb
         elif self.base_model == 'box':
-            pdb.set_trace()
-        else:
-            raise ValueError
-
-    def _intersection(self, embs):
-        # (batchsize, n_conj, emb_dim)
-        if self.base_model == 'vec':
-            return self.center_net(embs)
+            return e_emb + r_emb
         else:
             raise ValueError
         
-    def _cal_logit(self, q_emb, a_emb):
-        if self.base_model == 'vec':
-            # logit = (q_emb * a_emb).sum(dim=-1)
-            distance = q_emb - a_emb
-            logit = self.gamma - torch.norm(distance, p=1, dim=-1)
-            return logit
-        else:
-            raise ValueError
+    def cal_logit_vec(self, a_emb, q_emb):
+        distance = a_emb - q_emb
+        logit = self.gamma - torch.norm(distance, p=1, dim=-1)
+        return logit
+
+    def _cal_logit_box(self, a_emb, q_emb, q_emb_offset):
+        delta = (a_emb - q_emb).abs()
+        distance_out = torch.nn.functional.relu(delta - q_emb_offset)
+        distance_in = torch.min(delta, q_emb_offset)
+        logit = self.gamma - torch.norm(distance_out, p=1, dim=-1) - self.cen * torch.norm(distance_in, p=1, dim=-1)
+        return logit
     
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -213,12 +210,22 @@ class LogicRecModel(torch.nn.Module):
         a_emb = self.e_embedding(data[:, :, -1])
 
         ur_emb = self.r_embedding.weight[-1]
-        q_emb_1 = self._projection(e_emb, r_emb, torch.zeros_like(e_emb))
-        q_emb_2 = self._projection(u_emb, ur_emb, torch.zeros_like(e_emb))
-        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                              q_emb_2.unsqueeze(dim=1)], dim=1))
-
-        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
+        q_emb_1 = self._projection(e_emb, r_emb)
+        q_emb_2 = self._projection(u_emb, ur_emb)
+        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                           q_emb_2.unsqueeze(dim=1)], dim=1))
+        if self.base_model == 'vec':
+            return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        elif self.base_model == 'box':
+            r_emb_offset = self.offset_embedding(data[:, 0, 1])
+            ur_emb_offset = self.offset_embedding.weight[-1]
+            q_emb_1_offset = self._projection(torch.zeros_like(r_emb), r_emb_offset)
+            q_emb_2_offset = self._projection(torch.zeros_like(r_emb), ur_emb_offset)
+            q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                      q_emb_2_offset.unsqueeze(dim=1)], dim=1))
+            return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        else:
+            raise ValueError
 
     def forward_2p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -230,10 +237,25 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1]
         q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
         q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                               q_emb_2.unsqueeze(dim=1)], dim=1))
-
-        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
+        
+        if self.base_model == 'vec':
+            return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        elif self.base_model == 'box':
+            r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
+            r_emb_2_offset = self.offset_embedding(data[:, 0, 2])
+            ur_emb_offset = self.offset_embedding.weight[-1]
+            q_emb_1_offset = self._projection(
+                                self._projection(torch.zeros_like(r_emb_1), 
+                                                r_emb_1_offset), 
+                                r_emb_2_offset)
+            q_emb_2_offset = self._projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                      q_emb_2_offset.unsqueeze(dim=1)], dim=1))
+            return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        else:
+            raise ValueError
 
     def forward_3p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -246,10 +268,27 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1]
         q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
         q_emb_2 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                               q_emb_2.unsqueeze(dim=1)], dim=1))
-
-        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
+        if self.base_model == 'vec':
+            return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        elif self.base_model == 'box':
+            r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
+            r_emb_2_offset = self.offset_embedding(data[:, 0, 2])
+            r_emb_3_offset = self.offset_embedding(data[:, 0, 3])
+            ur_emb_offset = self.offset_embedding.weight[-1]
+            q_emb_1_offset = self._projection(
+                                self._projection(
+                                    self._projection(torch.zeros_like(r_emb_1), 
+                                                    r_emb_1_offset), 
+                                        r_emb_2_offset), 
+                                    r_emb_3_offset)
+            q_emb_2_offset = self._projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                      q_emb_2_offset.unsqueeze(dim=1)], dim=1))
+            return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        else:
+            raise ValueError
 
     def forward_2i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -263,11 +302,24 @@ class LogicRecModel(torch.nn.Module):
         q_emb_1 = self._projection(e_emb_1, r_emb_1)
         q_emb_2 = self._projection(e_emb_2, r_emb_2)
         q_emb_3 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                               q_emb_2.unsqueeze(dim=1), 
                                               q_emb_3.unsqueeze(dim=1)], dim=1))
-
-        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
+        if self.base_model == 'vec':
+            return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        elif self.base_model == 'box':
+            r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
+            r_emb_2_offset = self.offset_embedding(data[:, 0, 3])
+            ur_emb_offset = self.offset_embedding.weight[-1]
+            q_emb_1_offset = self._projection(torch.zeros_like(r_emb_1), r_emb_1_offset)
+            q_emb_2_offset = self._projection(torch.zeros_like(r_emb_2), r_emb_2_offset)
+            q_emb_3_offset = self._projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                      q_emb_2_offset.unsqueeze(dim=1),
+                                                      q_emb_3_offset.unsqueeze(dim=1)], dim=1))
+            return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        else:
+            raise ValueError
 
     def forward_3i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -284,12 +336,28 @@ class LogicRecModel(torch.nn.Module):
         q_emb_2 = self._projection(e_emb_2, r_emb_2)
         q_emb_3 = self._projection(e_emb_3, r_emb_3)
         q_emb_4 = self._projection(u_emb, ur_emb)
-        q_emb = self._intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+        q_emb = self.center_net(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                               q_emb_2.unsqueeze(dim=1), 
                                               q_emb_3.unsqueeze(dim=1),
                                               q_emb_4.unsqueeze(dim=1)], dim=1))
-
-        return self._cal_logit(q_emb.unsqueeze(dim=1), a_emb)
+        if self.base_model == 'vec':
+            return self._cal_logit_vec(a_emb, q_emb.unsqueeze(dim=1))
+        elif self.base_model == 'box':
+            r_emb_1_offset = self.offset_embedding(data[:, 0, 1])
+            r_emb_2_offset = self.offset_embedding(data[:, 0, 3])
+            r_emb_3_offset = self.offset_embedding(data[:, 0, 5])
+            ur_emb_offset = self.offset_embedding.weight[-1]
+            q_emb_1_offset = self._projection(torch.zeros_like(r_emb_1), r_emb_1_offset)
+            q_emb_2_offset = self._projection(torch.zeros_like(r_emb_2), r_emb_2_offset)
+            q_emb_3_offset = self._projection(torch.zeros_like(r_emb_3), r_emb_3_offset)
+            q_emb_4_offset = self._projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            q_emb_offset = self.offset_net(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                      q_emb_2_offset.unsqueeze(dim=1),
+                                                      q_emb_3_offset.unsqueeze(dim=1),
+                                                      q_emb_4_offset.unsqueeze(dim=1)], dim=1))
+            return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
+        else:
+            raise ValueError
 
     def get_loss(self, data, flag):
         if flag == '1p':
@@ -304,7 +372,7 @@ class LogicRecModel(torch.nn.Module):
             logits = self.forward_3i(data)
         else:
             raise ValueError
-        
+
         # return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
         return ( - torch.nn.functional.logsigmoid(logits[:, 0]).mean() - torch.log(1 - torch.sigmoid(logits[:, 1:]) + 1e-10).mean()) / 2
 
@@ -402,6 +470,7 @@ def parse_args(args=None):
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--gamma', default=12, type=int)
+    parser.add_argument('--cen', default=0.02, type=float)
     parser.add_argument('--emb_dim', default=256, type=int)
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
@@ -526,6 +595,7 @@ if __name__ == '__main__':
     
     model = LogicRecModel(N_user, N_ent, N_rel, cfg)
     model = model.to(device)
+    ranger = range(cfg.max_steps)
     
     if cfg.verbose:
         lqa_dataloader_1p_valid = tqdm.tqdm(lqa_dataloader_1p_valid)
@@ -538,6 +608,8 @@ if __name__ == '__main__':
         lqa_dataloader_2i_test = tqdm.tqdm(lqa_dataloader_2i_test)
         lqa_dataloader_3i_valid = tqdm.tqdm(lqa_dataloader_3i_valid)
         lqa_dataloader_3i_test = tqdm.tqdm(lqa_dataloader_3i_test)
+        ranger = tqdm.tqdm(ranger)
+        
     valid_dataloaders = [lqa_dataloader_1p_valid, 
                         lqa_dataloader_2p_valid,
                         lqa_dataloader_3p_valid,
@@ -558,11 +630,7 @@ if __name__ == '__main__':
     lqa_dataloader_3i_train = iterator(lqa_dataloader_3i_train)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.wd)
-    
-    if cfg.verbose:
-        ranger = tqdm.tqdm(range(cfg.max_steps))
-    else:
-        ranger = range(cfg.max_steps)
+        
     tolerance = cfg.tolerance
     max_value = 0
     avg_loss = []
