@@ -176,19 +176,19 @@ class Regularizer():
 class BetaIntersection(torch.nn.Module):
 
     def __init__(self, dim):
-        super(BetaIntersection, self).__init__()
+        super().__init__()
         self.dim = dim
-        self.layer1 = torch.nn.Linear(2 * self.dim, 2 * self.dim)
-        self.layer2 = torch.nn.Linear(2 * self.dim, self.dim)
+        self.layer1 = torch.nn.Linear(self.dim, self.dim // 2)
+        self.layer2 = torch.nn.Linear(self.dim // 2, self.dim // 2)
 
         torch.nn.init.xavier_uniform_(self.layer1.weight.data)
         torch.nn.init.xavier_uniform_(self.layer2.weight.data)
 
     def forward(self, alpha_embeddings, beta_embeddings):
         all_embeddings = torch.cat([alpha_embeddings, beta_embeddings], dim=-1)
-        # (batch_size, num_conj, 2 * dim)
+        # (batch_size, num_conj, dim)
         layer1_act = torch.nn.functional.relu(self.layer1(all_embeddings))
-        # (batch_size, num_conj, 2 * dim)
+        # (batch_size, num_conj, dim)
         attention = torch.nn.functional.softmax(self.layer2(layer1_act), dim=1)
         alpha_embedding = torch.sum(attention * alpha_embeddings, dim=1)
         beta_embedding = torch.sum(attention * beta_embeddings, dim=1)
@@ -230,18 +230,20 @@ class LogicRecModel(torch.nn.Module):
             self.center_net = CenterIntersection(cfg.emb_dim)
 
         elif self.base_model == 'box':
+            self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
+            self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
             self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
             self.offset_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
             self.center_net = CenterIntersection(cfg.emb_dim)
             self.offset_net = BoxOffsetIntersection(cfg.emb_dim)
         
         elif self.base_model == 'beta':
-            self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim * 2)
-            self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim * 2)
-            self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim * 2)
+            self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
+            self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
+            self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
             self.regularizer = Regularizer(1, 0.05, 1e9)
             self.center_net = BetaIntersection(cfg.emb_dim)
-            self.beta_proj_net = BetaProjection(cfg.emb_dim * 2, self.regularizer)
+            self.beta_proj_net = BetaProjection(cfg.emb_dim, self.regularizer)
         
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
@@ -670,7 +672,7 @@ def parse_args(args=None):
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--tolerance', default=3, type=int)
+    parser.add_argument('--tolerance', default=5, type=int)
     parser.add_argument('--valid_interval', default=1000, type=int)
     return parser.parse_args(args)
 
