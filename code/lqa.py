@@ -308,8 +308,8 @@ class LogicRecModel(torch.nn.Module):
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
         
         elif self.base_model == 'beta':
-            q_emb_1 = self._projection(e_emb, r_emb)
-            q_emb_2 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1 = self._projection(self.regularizer(e_emb), r_emb)
+            q_emb_2 = self._projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
             q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
             q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
             q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
@@ -358,8 +358,8 @@ class LogicRecModel(torch.nn.Module):
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
         
         elif self.base_model == 'beta':
-            q_emb_1 = self._projection(self._projection(e_emb, r_emb_1), r_emb_2)
-            q_emb_2 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1 = self._projection(self._projection(self.regularizer(e_emb), r_emb_1), r_emb_2)
+            q_emb_2 = self._projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
             q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
             q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
             q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
@@ -412,8 +412,8 @@ class LogicRecModel(torch.nn.Module):
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
         
         elif self.base_model == 'beta':
-            q_emb_1 = self._projection(self._projection(self._projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
-            q_emb_2 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1 = self._projection(self._projection(self._projection(self.regularizer(e_emb), r_emb_1), r_emb_2), r_emb_3)
+            q_emb_2 = self._projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
             q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
             q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
             q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
@@ -466,9 +466,9 @@ class LogicRecModel(torch.nn.Module):
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
         
         elif self.base_model == 'beta':
-            q_emb_1 = self._projection(e_emb_1, r_emb_1)
-            q_emb_2 = self._projection(e_emb_2, r_emb_2)
-            q_emb_3 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1 = self._projection(self.regularizer(e_emb_1), r_emb_1)
+            q_emb_2 = self._projection(self.regularizer(e_emb_2), r_emb_2)
+            q_emb_3 = self._projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
             q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
             q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
             q_emb_3_alpha, q_emb_3_beta = torch.chunk(q_emb_3, 2, dim=-1)
@@ -533,10 +533,10 @@ class LogicRecModel(torch.nn.Module):
             return self._cal_logit_box(a_emb, q_emb.unsqueeze(dim=1), q_emb_offset.unsqueeze(dim=1))
         
         elif self.base_model == 'beta':
-            q_emb_1 = self._projection(e_emb_1, r_emb_1)
-            q_emb_2 = self._projection(e_emb_2, r_emb_2)
-            q_emb_3 = self._projection(e_emb_3, r_emb_3)
-            q_emb_4 = self._projection(u_emb, ur_emb.expand_as(u_emb))
+            q_emb_1 = self._projection(self.regularizer(e_emb_1), r_emb_1)
+            q_emb_2 = self._projection(self.regularizer(e_emb_2), r_emb_2)
+            q_emb_3 = self._projection(self.regularizer(e_emb_3), r_emb_3)
+            q_emb_4 = self._projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
             q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
             q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
             q_emb_3_alpha, q_emb_3_beta = torch.chunk(q_emb_3, 2, dim=-1)
@@ -569,8 +569,9 @@ class LogicRecModel(torch.nn.Module):
             logits = self.forward_3i(data)
         else:
             raise ValueError
-
-        return ( - torch.nn.functional.logsigmoid(logits[:, 0]).mean() - torch.log(1 - torch.sigmoid(logits[:, 1:]) + 1e-10).mean()) / 2
+        
+        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+        # return ( - torch.nn.functional.logsigmoid(logits[:, 0]).mean() - torch.log(1 - torch.sigmoid(logits[:, 1:]) + 1e-10).mean()) / 2
 
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
@@ -665,15 +666,15 @@ def parse_args(args=None):
     parser.add_argument('--emb_dim', default=256, type=int)
     parser.add_argument('--lr', default=1e-2, type=int)
     parser.add_argument('--wd', default=1e-5, type=int)
-    parser.add_argument('--max_steps', default=100000, type=int)
+    parser.add_argument('--max_steps', default=500000, type=int)
     # vec, box, beta, gamma, fuzzy, cqd
     parser.add_argument('--base_model', default='vec', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--tolerance', default=5, type=int)
-    parser.add_argument('--valid_interval', default=1000, type=int)
+    parser.add_argument('--tolerance', default=10, type=int)
+    parser.add_argument('--valid_interval', default=5000, type=int)
     return parser.parse_args(args)
 
 if __name__ == '__main__':
