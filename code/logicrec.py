@@ -198,16 +198,6 @@ class BasicIntersection(torch.nn.Module):
         attention = torch.nn.functional.softmax(self.layer2(layer1_act), dim=0)
         return torch.sum(attention * embeddings, dim=1)
 
-class Regularizer():
-    
-    def __init__(self, base_add, min_val, max_val):
-        self.base_add = base_add
-        self.min_val = min_val
-        self.max_val = max_val
-
-    def __call__(self, entity_embedding):
-        return torch.clamp(entity_embedding + self.base_add, self.min_val, self.max_val)
-
 class FusionNet(torch.nn.Module):
     
     def __init__(self, emb_dim):
@@ -263,122 +253,123 @@ class LogicRecModel(torch.nn.Module):
         super().__init__()
         self.emb_dim = cfg.emb_dim
         self.gamma = cfg.gamma
-        self.kge_base_model = cfg.kge_base_model
-        self.rs_base_model = cfg.rs_base_model
-        self.lqa_base_model = cfg.lqa_base_model
         self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
-        self.r_embedding = torch.nn.Embedding(N_rel + 1, cfg.emb_dim)
+        self.r_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
         self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
         self.basic_intersection = BasicIntersection(cfg.emb_dim)
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
-        self.regularizer = Regularizer(1, 0.05, 1e9)
         self.projection = ProjectionNet(cfg.emb_dim)
         self.fusion = FusionNet(cfg.emb_dim)
         self.intersection = IntersectionNet(cfg.emb_dim)
 
     def _cal_logit(self, a_emb, q_emb):
-        a_emb_alpha, a_emb_beta = torch.chunk(a_emb, 2, dim=-1)
-        q_emb_alpha, q_emb_beta = torch.chunk(q_emb, 2, dim=-1)
-        a_dist = torch.distributions.beta.Beta(a_emb_alpha, a_emb_beta)
-        q_dist = torch.distributions.beta.Beta(q_emb_alpha, q_emb_beta)
-        logit = self.gamma - torch.norm(torch.distributions.kl.kl_divergence(a_dist, q_dist), p=1, dim=-1)
+        logit = (a_emb * q_emb).sum(dim=-1)
         return logit
 
     def forward_kge(self, data):
-        h_emb = self.regularizer(self.e_embedding(data[:, :, 0]))
+        h_emb = self.e_embedding(data[:, :, 0])
         r_emb = self.r_embedding(data[:, :, 1])
-        q_emb = self.regularizer(self.projection(h_emb, r_emb))
-        a_emb = self.regularizer(self.e_embedding(data[:, :, 2]))
+        q_emb = self.projection(h_emb, r_emb)
+        a_emb = self.e_embedding(data[:, :, 2])
         
         return self._cal_logit(a_emb, q_emb)
 
     def forward_rs(self, data):
-        u_emb = self.regularizer(self.u_embedding(data[:, :, 0]))
-        r_emb = self.r_embedding.weight[-1].expand_as(u_emb)
-        q_emb = self.regularizer(self.projection(u_emb, r_emb))
-        i_emb = self.regularizer(self.e_embedding(data[:, :, 1]))
+        u_emb = self.u_embedding(data[:, :, 0])
+        i_emb = self.e_embedding(data[:, :, 1])
         
-        return self._cal_logit(i_emb, q_emb)
+        return self._cal_logit(i_emb, u_emb)
 
     def forward_1p(self, data):
-        e_emb = self.regularizer(self.e_embedding(data[:, 0, 0]))
+        e_emb = self.e_embedding(data[:, 0, 0])
         r_emb = self.r_embedding(data[:, 0, 1])
-        u_emb = self.regularizer(self.u_embedding(data[:, 0, -2]))
-        a_emb = self.regularizer(self.e_embedding(data[:, :, -1]))
+        u_emb = self.u_embedding(data[:, 0, -2])
+        a_emb = self.e_embedding(data[:, :, -1])
 
-        e_emb = self.regularizer(self.fusion(e_emb, u_emb))
-        q_emb = self.regularizer(self.projection(e_emb, r_emb))
+        # e_emb = self.fusion(e_emb, u_emb)
+        # r_emb = self.fusion(r_emb, u_emb)
+        q_emb = self.projection(e_emb, r_emb)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
 
     def forward_2p(self, data):
-        e_emb = self.regularizer(self.e_embedding(data[:, 0, 0]))
+        e_emb = self.e_embedding(data[:, 0, 0])
         r_emb_1 = self.r_embedding(data[:, 0, 1])
         r_emb_2 = self.r_embedding(data[:, 0, 2])
-        u_emb = self.regularizer(self.u_embedding(data[:, 0, -2]))
-        a_emb = self.regularizer(self.e_embedding(data[:, :, -1]))
+        u_emb = self.u_embedding(data[:, 0, -2])
+        a_emb = self.e_embedding(data[:, :, -1])
 
-        e_emb = self.regularizer(self.fusion(e_emb, u_emb))
-        q_emb = self.regularizer(self.projection(e_emb, r_emb_1))
-        q_emb = self.regularizer(self.projection(q_emb, r_emb_2))
+        # e_emb = self.fusion(e_emb, u_emb)
+        # r_emb_1 = self.fusion(r_emb_1, u_emb)
+        # r_emb_2 = self.fusion(r_emb_2, u_emb)
+        q_emb = self.projection(e_emb, r_emb_1)
+        q_emb = self.projection(q_emb, r_emb_2)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
 
     def forward_3p(self, data):
-        e_emb = self.regularizer(self.e_embedding(data[:, 0, 0]))
+        e_emb = self.e_embedding(data[:, 0, 0])
         r_emb_1 = self.r_embedding(data[:, 0, 1])
         r_emb_2 = self.r_embedding(data[:, 0, 2])
         r_emb_3 = self.r_embedding(data[:, 0, 3])
-        u_emb = self.regularizer(self.u_embedding(data[:, 0, -2]))
-        a_emb = self.regularizer(self.e_embedding(data[:, :, -1]))
+        u_emb = self.u_embedding(data[:, 0, -2])
+        a_emb = self.e_embedding(data[:, :, -1])
 
-        e_emb = self.regularizer(self.fusion(e_emb, u_emb))
-        q_emb = self.regularizer(self.projection(e_emb, r_emb_1))
-        q_emb = self.regularizer(self.projection(q_emb, r_emb_2))
-        q_emb = self.regularizer(self.projection(q_emb, r_emb_3))
+        # e_emb = self.fusion(e_emb, u_emb)
+        # r_emb_1 = self.fusion(r_emb_1, u_emb)
+        # r_emb_2 = self.fusion(r_emb_2, u_emb)
+        # r_emb_3 = self.fusion(r_emb_3, u_emb)
+        q_emb = self.projection(e_emb, r_emb_1)
+        q_emb = self.projection(q_emb, r_emb_2)
+        q_emb = self.projection(q_emb, r_emb_3)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
 
     def forward_2i(self, data):
-        e_emb_1 = self.regularizer(self.e_embedding(data[:, 0, 0]))
+        e_emb_1 = self.e_embedding(data[:, 0, 0])
         r_emb_1 = self.r_embedding(data[:, 0, 1])
-        e_emb_2 = self.regularizer(self.e_embedding(data[:, 0, 2]))
+        e_emb_2 = self.e_embedding(data[:, 0, 2])
         r_emb_2 = self.r_embedding(data[:, 0, 3])
-        u_emb = self.regularizer(self.u_embedding(data[:, 0, -2]))
-        a_emb = self.regularizer(self.e_embedding(data[:, :, -1]))
+        u_emb = self.u_embedding(data[:, 0, -2])
+        a_emb = self.e_embedding(data[:, :, -1])
 
-        e_emb_1 = self.regularizer(self.fusion(e_emb_1, u_emb))
-        e_emb_2 = self.regularizer(self.fusion(e_emb_2, u_emb))
-        q_emb_1 = self.regularizer(self.projection(e_emb_1, r_emb_1))
-        q_emb_2 = self.regularizer(self.projection(e_emb_2, r_emb_2))
-        q_emb = self.regularizer(self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                              q_emb_2.unsqueeze(dim=1)], dim=1)))
+        # e_emb_1 = self.fusion(e_emb_1, u_emb)
+        # e_emb_2 = self.fusion(e_emb_2, u_emb)
+        # r_emb_1 = self.fusion(r_emb_1, u_emb)
+        # r_emb_2 = self.fusion(r_emb_2, u_emb)
+        q_emb_1 = self.projection(e_emb_1, r_emb_1)
+        q_emb_2 = self.projection(e_emb_2, r_emb_2)
+        q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                            q_emb_2.unsqueeze(dim=1)], dim=1))
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
 
     def forward_3i(self, data):
-        e_emb_1 = self.regularizer(self.e_embedding(data[:, 0, 0]))
+        e_emb_1 = self.e_embedding(data[:, 0, 0])
         r_emb_1 = self.r_embedding(data[:, 0, 1])
-        e_emb_2 = self.regularizer(self.e_embedding(data[:, 0, 2]))
+        e_emb_2 = self.e_embedding(data[:, 0, 2])
         r_emb_2 = self.r_embedding(data[:, 0, 3])
-        e_emb_3 = self.regularizer(self.e_embedding(data[:, 0, 4]))
+        e_emb_3 = self.e_embedding(data[:, 0, 4])
         r_emb_3 = self.r_embedding(data[:, 0, 5])
-        u_emb = self.regularizer(self.u_embedding(data[:, 0, -2]))
-        a_emb = self.regularizer(self.e_embedding(data[:, :, -1]))
+        u_emb = self.u_embedding(data[:, 0, -2])
+        a_emb = self.e_embedding(data[:, :, -1])
 
-        e_emb_1 = self.regularizer(self.fusion(e_emb_1, u_emb))
-        e_emb_2 = self.regularizer(self.fusion(e_emb_2, u_emb))
-        e_emb_3 = self.regularizer(self.fusion(e_emb_3, u_emb))
-        q_emb_1 = self.regularizer(self.projection(e_emb_1, r_emb_1))
-        q_emb_2 = self.regularizer(self.projection(e_emb_2, r_emb_2))
-        q_emb_3 = self.regularizer(self.projection(e_emb_3, r_emb_3))
-        q_emb = self.regularizer(self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                              q_emb_2.unsqueeze(dim=1),
-                                                              q_emb_3.unsqueeze(dim=1)], dim=1)))
+        # e_emb_1 = self.fusion(e_emb_1, u_emb)
+        # e_emb_2 = self.fusion(e_emb_2, u_emb)
+        # e_emb_3 = self.fusion(e_emb_3, u_emb)
+        # r_emb_1 = self.fusion(r_emb_1, u_emb)
+        # r_emb_2 = self.fusion(r_emb_2, u_emb)
+        # r_emb_3 = self.fusion(r_emb_3, u_emb)
+        q_emb_1 = self.projection(e_emb_1, r_emb_1)
+        q_emb_2 = self.projection(e_emb_2, r_emb_2)
+        q_emb_3 = self.projection(e_emb_3, r_emb_3)
+        q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                            q_emb_2.unsqueeze(dim=1),
+                                            q_emb_3.unsqueeze(dim=1)], dim=1))
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
 
     def get_loss(self, data, flag):
         if flag == 'kge':
@@ -494,18 +485,15 @@ def parse_args(args=None):
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
     parser.add_argument('--gamma', default=12, type=int)
-    parser.add_argument('--lr', default=1e-2, type=int)
-    parser.add_argument('--wd', default=1e-5, type=int)
+    parser.add_argument('--lr', default=1e-3, type=int)
+    parser.add_argument('--wd', default=0, type=int)
     parser.add_argument('--fuse', default=1, type=int)
     parser.add_argument('--max_steps', default=100000, type=int)
-    parser.add_argument('--rs_base_model', default='BPRMF', type=str)
-    parser.add_argument('--kge_base_model', default='DistMult', type=str)
-    parser.add_argument('--lqa_base_model', default='GQE', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--tolerance', default=3, type=int)
+    parser.add_argument('--tolerance', default=10, type=int)
     parser.add_argument('--valid_interval', default=1000, type=int)
     return parser.parse_args(args)
 

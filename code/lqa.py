@@ -664,17 +664,17 @@ def parse_args(args=None):
     parser.add_argument('--gamma', default=12, type=int)
     parser.add_argument('--cen', default=0.02, type=float)
     parser.add_argument('--emb_dim', default=256, type=int)
-    parser.add_argument('--lr', default=1e-2, type=int)
-    parser.add_argument('--wd', default=1e-5, type=int)
-    parser.add_argument('--max_steps', default=500000, type=int)
+    parser.add_argument('--lr', default=1e-3, type=int)
+    parser.add_argument('--wd', default=0, type=int)
+    parser.add_argument('--max_steps', default=100000, type=int)
     # vec, box, beta, gamma, fuzzy, cqd
     parser.add_argument('--base_model', default='vec', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--tolerance', default=10, type=int)
-    parser.add_argument('--valid_interval', default=5000, type=int)
+    parser.add_argument('--tolerance', default=3, type=int)
+    parser.add_argument('--valid_interval', default=1000, type=int)
     return parser.parse_args(args)
 
 if __name__ == '__main__':
