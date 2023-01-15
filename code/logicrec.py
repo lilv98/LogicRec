@@ -97,10 +97,11 @@ class KGEDataset(torch.utils.data.Dataset):
         return sample
 
 class RSDataset(torch.utils.data.Dataset):
-    def __init__(self, N_user, N_item, data, cfg):
+    def __init__(self, N_user, N_item, N_ent, data, cfg):
         super().__init__()
         self.N_user = N_user
         self.N_item = N_item
+        self.N_ent = N_ent
         self.num_ng = cfg.num_ng
         self.data = self._get_data(data)
 
@@ -116,18 +117,26 @@ class RSDataset(torch.utils.data.Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
+        # user, item = self.data[idx]
+        # neg_user = torch.tensor(np.random.choice(self.N_user, self.num_ng // 2)).unsqueeze(dim=1)
+        # neg_item = torch.tensor(np.random.choice(self.N_item, self.num_ng // 2)).unsqueeze(dim=1)
+        # neg_i = torch.cat([user.unsqueeze(dim=0).expand(self.num_ng // 2, 1), neg_item], dim=1)
+        # neg_u = torch.cat([neg_user, item.unsqueeze(dim=0).expand(self.num_ng // 2, 1)], dim=1)
+        # sample = torch.cat([torch.tensor([user, item]).unsqueeze(dim=0), neg_i, neg_u], dim=0)
+        # return sample
         user, item = self.data[idx]
-        neg_user = torch.tensor(np.random.choice(self.N_user, self.num_ng // 2)).unsqueeze(dim=1)
-        neg_item = torch.tensor(np.random.choice(self.N_item, self.num_ng // 2)).unsqueeze(dim=1)
-        neg_i = torch.cat([user.unsqueeze(dim=0).expand(self.num_ng // 2, 1), neg_item], dim=1)
-        neg_u = torch.cat([neg_user, item.unsqueeze(dim=0).expand(self.num_ng // 2, 1)], dim=1)
-        sample = torch.cat([torch.tensor([user, item]).unsqueeze(dim=0), neg_i, neg_u], dim=0)
+        neg_items = torch.tensor(np.random.choice(self.N_item, 1)).unsqueeze(dim=1)
+        neg_entites = self.N_item + torch.tensor(np.random.choice(self.N_ent - self.N_item, self.num_ng - 1)).unsqueeze(dim=1)
+        neg_i = torch.cat([user.unsqueeze(dim=0).expand(1, 1), neg_items], dim=1)
+        neg_e = torch.cat([user.unsqueeze(dim=0).expand(self.num_ng - 1, 1), neg_entites], dim=1)
+        sample = torch.cat([torch.tensor([user, item]).unsqueeze(dim=0), neg_i, neg_e], dim=0)
         return sample
 
 class LQADatasetTrain(torch.utils.data.Dataset):
-    def __init__(self, N_item, data, cfg):
+    def __init__(self, N_item, N_ent, data, cfg):
         super().__init__()
         self.N_item = N_item
+        self.N_ent = N_ent
         self.num_ng = cfg.num_ng
         self.data = self._get_data(data)
 
@@ -147,7 +156,9 @@ class LQADatasetTrain(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         pos = self.data[idx]
-        neg_answers = torch.tensor(np.random.choice(self.N_item, self.num_ng)).unsqueeze(dim=1)
+        neg_items = torch.tensor(np.random.choice(self.N_item, 1)).unsqueeze(dim=1)
+        neg_entites = self.N_item + torch.tensor(np.random.choice(self.N_ent - self.N_item, self.num_ng - 1)).unsqueeze(dim=1)
+        neg_answers = torch.cat([neg_items, neg_entites], dim=0)
         query = pos[:-1].expand(self.num_ng, -1)
         negs = torch.cat([query, neg_answers], dim=1)
         sample = torch.cat([pos.unsqueeze(dim=0), negs], dim=0)
@@ -175,7 +186,7 @@ class LQADatasetTest(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, idx):
         pos = self.data[idx]
         queries = pos[:-1].unsqueeze(dim=0).expand(self.N_item, len(pos) - 1)
@@ -253,6 +264,8 @@ class LogicRecModel(torch.nn.Module):
         super().__init__()
         self.emb_dim = cfg.emb_dim
         self.gamma = cfg.gamma
+        self.theta = cfg.theta
+        self.num_ng = cfg.num_ng
         self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
         self.r_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
         self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
@@ -267,6 +280,16 @@ class LogicRecModel(torch.nn.Module):
     def _cal_logit(self, a_emb, q_emb):
         logit = (a_emb * q_emb).sum(dim=-1)
         return logit
+    
+    # def _cal_contrastive(self, a_emb):
+    #     upper = torch.exp((a_emb[:, 0, :] * a_emb[:, 1, :]).sum(dim=-1))
+    #     lower = torch.exp((a_emb[:, 1, :].unsqueeze(dim=1) * a_emb[:, 1:, :]).sum(dim=-1)).sum(dim=-1)
+    #     return - torch.log(upper / lower + 1e-10).mean()
+
+    # def _cal_contrastive(self, logits):
+    #     upper = torch.exp((logits[:, 0] * logits[:, 1]).sum(dim=-1))
+    #     lower = torch.exp((logits[:, 1].unsqueeze(dim=1) * logits[:, 1:]).sum(dim=-1)).sum(dim=-1)
+    #     return - torch.log(upper / lower + 1e-10).mean()
 
     def forward_kge(self, data):
         h_emb = self.e_embedding(data[:, :, 0])
@@ -277,10 +300,10 @@ class LogicRecModel(torch.nn.Module):
         return self._cal_logit(a_emb, q_emb)
 
     def forward_rs(self, data):
-        u_emb = self.u_embedding(data[:, :, 0])
+        u_emb = self.u_embedding(data[:, 0, 0])
         i_emb = self.e_embedding(data[:, :, 1])
         
-        return self._cal_logit(i_emb, u_emb)
+        return self._cal_logit(i_emb, u_emb.unsqueeze(dim=1))
 
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -291,8 +314,9 @@ class LogicRecModel(torch.nn.Module):
         # e_emb = self.fusion(e_emb, u_emb)
         # r_emb = self.fusion(r_emb, u_emb)
         q_emb = self.projection(e_emb, r_emb)
+        q_emb = self.fusion(q_emb, u_emb)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
 
     def forward_2p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -306,8 +330,9 @@ class LogicRecModel(torch.nn.Module):
         # r_emb_2 = self.fusion(r_emb_2, u_emb)
         q_emb = self.projection(e_emb, r_emb_1)
         q_emb = self.projection(q_emb, r_emb_2)
+        q_emb = self.fusion(q_emb, u_emb)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
 
     def forward_3p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -324,8 +349,9 @@ class LogicRecModel(torch.nn.Module):
         q_emb = self.projection(e_emb, r_emb_1)
         q_emb = self.projection(q_emb, r_emb_2)
         q_emb = self.projection(q_emb, r_emb_3)
+        q_emb = self.fusion(q_emb, u_emb)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
 
     def forward_2i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -343,8 +369,9 @@ class LogicRecModel(torch.nn.Module):
         q_emb_2 = self.projection(e_emb_2, r_emb_2)
         q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                             q_emb_2.unsqueeze(dim=1)], dim=1))
+        q_emb = self.fusion(q_emb, u_emb)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
 
     def forward_3i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -366,14 +393,16 @@ class LogicRecModel(torch.nn.Module):
         q_emb_2 = self.projection(e_emb_2, r_emb_2)
         q_emb_3 = self.projection(e_emb_3, r_emb_3)
         q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                            q_emb_2.unsqueeze(dim=1),
-                                            q_emb_3.unsqueeze(dim=1)], dim=1))
+                                             q_emb_2.unsqueeze(dim=1),
+                                             q_emb_3.unsqueeze(dim=1)], dim=1))
+        q_emb = self.fusion(q_emb, u_emb)
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1)) + self._cal_logit(a_emb, u_emb.unsqueeze(dim=1))
+        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
 
     def get_loss(self, data, flag):
         if flag == 'kge':
             logits = self.forward_kge(data)
+            return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=1) - logits[:, 1:]).mean()
         elif flag == 'rs':
             logits = self.forward_rs(data)
         elif flag == '1p':
@@ -388,7 +417,11 @@ class LogicRecModel(torch.nn.Module):
             logits = self.forward_3i(data)
         else:
             raise ValueError
-        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
+        
+        upper = - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=1) - logits[:, 1:]).mean()
+        # lower = - torch.nn.functional.logsigmoid(logits[:, 1].unsqueeze(dim=1) - logits[:, 2:]).mean()
+        # return upper + self.theta * lower
+        return upper
 
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
@@ -410,7 +443,7 @@ def ndcg(true, rank, k):
         idcg = (true * discount).sum()
         dcg = (pred * discount).sum()
         return (dcg / idcg).item()
-        
+
 def evaluate(dataloader, model, device, train_dict, flag):
     r = []
     rr = []
@@ -485,6 +518,7 @@ def parse_args(args=None):
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
     parser.add_argument('--gamma', default=12, type=int)
+    parser.add_argument('--theta', default=0.1, type=float)
     parser.add_argument('--lr', default=1e-3, type=int)
     parser.add_argument('--wd', default=0, type=int)
     parser.add_argument('--fuse', default=1, type=int)
@@ -514,20 +548,20 @@ if __name__ == '__main__':
     train_3i, test_3i = load_obj(input_path + '/input/3i_train.pkl'), load_obj(input_path + '/input/3i_test.pkl')
     
     kge_dataset = KGEDataset(N_ent, kg, cfg)
-    rs_dataset = RSDataset(N_user, N_item, train_dict, cfg)
-    lqa_dataset_1p_train = LQADatasetTrain(N_item, train_1p, cfg)
+    rs_dataset = RSDataset(N_user, N_item, N_ent, train_dict, cfg)
+    lqa_dataset_1p_train = LQADatasetTrain(N_item, N_ent, train_1p, cfg)
     lqa_dataset_1p_valid = LQADatasetTest(N_item, test_1p, cfg, stage='valid')
     lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg, stage='test')
-    lqa_dataset_2p_train = LQADatasetTrain(N_item, train_2p, cfg)
+    lqa_dataset_2p_train = LQADatasetTrain(N_item, N_ent, train_2p, cfg)
     lqa_dataset_2p_valid = LQADatasetTest(N_item, test_2p, cfg, stage='valid')
     lqa_dataset_2p_test = LQADatasetTest(N_item, test_2p, cfg, stage='test')
-    lqa_dataset_3p_train = LQADatasetTrain(N_item, train_3p, cfg)
+    lqa_dataset_3p_train = LQADatasetTrain(N_item, N_ent, train_3p, cfg)
     lqa_dataset_3p_valid = LQADatasetTest(N_item, test_3p, cfg, stage='valid')
     lqa_dataset_3p_test = LQADatasetTest(N_item, test_3p, cfg, stage='test')
-    lqa_dataset_2i_train = LQADatasetTrain(N_item, train_2i, cfg)
+    lqa_dataset_2i_train = LQADatasetTrain(N_item, N_ent, train_2i, cfg)
     lqa_dataset_2i_valid = LQADatasetTest(N_item, test_2i, cfg, stage='valid')
     lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg, stage='test')
-    lqa_dataset_3i_train = LQADatasetTrain(N_item, train_3i, cfg)
+    lqa_dataset_3i_train = LQADatasetTrain(N_item, N_ent, train_3i, cfg)
     lqa_dataset_3i_valid = LQADatasetTest(N_item, test_3i, cfg, stage='valid')
     lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg, stage='test')
     

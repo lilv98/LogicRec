@@ -71,9 +71,10 @@ def read_data(path):
     return N_rel, N_item, N_ent, N_user, train_dict
 
 class LQADatasetTrain(torch.utils.data.Dataset):
-    def __init__(self, N_item, data, cfg):
+    def __init__(self, N_item, N_ent, data, cfg):
         super().__init__()
         self.N_item = N_item
+        self.N_ent = N_ent
         self.num_ng = cfg.num_ng
         self.data = self._get_data(data)
 
@@ -93,7 +94,8 @@ class LQADatasetTrain(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         pos = self.data[idx]
-        neg_answers = torch.tensor(np.random.choice(self.N_item, self.num_ng)).unsqueeze(dim=1)
+        # neg_answers = torch.tensor(np.random.choice(self.N_item, self.num_ng)).unsqueeze(dim=1)
+        neg_answers = torch.tensor(np.random.choice(self.N_ent, self.num_ng)).unsqueeze(dim=1)
         query = pos[:-1].expand(self.num_ng, -1)
         negs = torch.cat([query, neg_answers], dim=1)
         sample = torch.cat([pos.unsqueeze(dim=0), negs], dim=0)
@@ -570,8 +572,7 @@ class LogicRecModel(torch.nn.Module):
         else:
             raise ValueError
         
-        return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=-1) - logits[:, 1:]).mean()
-        # return ( - torch.nn.functional.logsigmoid(logits[:, 0]).mean() - torch.log(1 - torch.sigmoid(logits[:, 1:]) + 1e-10).mean()) / 2
+        return ( - torch.nn.functional.logsigmoid(logits[:, 0]).mean() - torch.log(1 - torch.sigmoid(logits[:, 1:]) + 1e-10).mean()) / 2
 
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
@@ -693,19 +694,19 @@ if __name__ == '__main__':
     train_2i, test_2i = load_obj(input_path + '/input/2i_train.pkl'), load_obj(input_path + '/input/2i_test.pkl')
     train_3i, test_3i = load_obj(input_path + '/input/3i_train.pkl'), load_obj(input_path + '/input/3i_test.pkl')
     
-    lqa_dataset_1p_train = LQADatasetTrain(N_item, train_1p, cfg)
+    lqa_dataset_1p_train = LQADatasetTrain(N_item, N_ent, train_1p, cfg)
     lqa_dataset_1p_valid = LQADatasetTest(N_item, test_1p, cfg, stage='valid')
     lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg, stage='test')
-    lqa_dataset_2p_train = LQADatasetTrain(N_item, train_2p, cfg)
+    lqa_dataset_2p_train = LQADatasetTrain(N_item, N_ent, train_2p, cfg)
     lqa_dataset_2p_valid = LQADatasetTest(N_item, test_2p, cfg, stage='valid')
     lqa_dataset_2p_test = LQADatasetTest(N_item, test_2p, cfg, stage='test')
-    lqa_dataset_3p_train = LQADatasetTrain(N_item, train_3p, cfg)
+    lqa_dataset_3p_train = LQADatasetTrain(N_item, N_ent, train_3p, cfg)
     lqa_dataset_3p_valid = LQADatasetTest(N_item, test_3p, cfg, stage='valid')
     lqa_dataset_3p_test = LQADatasetTest(N_item, test_3p, cfg, stage='test')
-    lqa_dataset_2i_train = LQADatasetTrain(N_item, train_2i, cfg)
+    lqa_dataset_2i_train = LQADatasetTrain(N_item, N_ent, train_2i, cfg)
     lqa_dataset_2i_valid = LQADatasetTest(N_item, test_2i, cfg, stage='valid')
     lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg, stage='test')
-    lqa_dataset_3i_train = LQADatasetTrain(N_item, train_3i, cfg)
+    lqa_dataset_3i_train = LQADatasetTrain(N_item, N_ent, train_3i, cfg)
     lqa_dataset_3i_valid = LQADatasetTest(N_item, test_3i, cfg, stage='valid')
     lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg, stage='test')
     
