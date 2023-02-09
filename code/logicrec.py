@@ -125,10 +125,10 @@ class RSDataset(torch.utils.data.Dataset):
         # sample = torch.cat([torch.tensor([user, item]).unsqueeze(dim=0), neg_i, neg_u], dim=0)
         # return sample
         user, item = self.data[idx]
-        neg_items = torch.tensor(np.random.choice(self.N_item, 1)).unsqueeze(dim=1)
-        neg_entites = self.N_item + torch.tensor(np.random.choice(self.N_ent - self.N_item, self.num_ng - 1)).unsqueeze(dim=1)
-        neg_i = torch.cat([user.unsqueeze(dim=0).expand(1, 1), neg_items], dim=1)
-        neg_e = torch.cat([user.unsqueeze(dim=0).expand(self.num_ng - 1, 1), neg_entites], dim=1)
+        neg_items = torch.tensor(np.random.choice(self.N_item, self.num_ng // 2)).unsqueeze(dim=1)
+        neg_entites = self.N_item + torch.tensor(np.random.choice(self.N_ent - self.N_item, self.num_ng // 2)).unsqueeze(dim=1)
+        neg_i = torch.cat([user.unsqueeze(dim=0).expand(self.num_ng // 2, 1), neg_items], dim=1)
+        neg_e = torch.cat([user.unsqueeze(dim=0).expand(self.num_ng // 2, 1), neg_entites], dim=1)
         sample = torch.cat([torch.tensor([user, item]).unsqueeze(dim=0), neg_i, neg_e], dim=0)
         return sample
 
@@ -156,8 +156,8 @@ class LQADatasetTrain(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         pos = self.data[idx]
-        neg_items = torch.tensor(np.random.choice(self.N_item, 1)).unsqueeze(dim=1)
-        neg_entites = self.N_item + torch.tensor(np.random.choice(self.N_ent - self.N_item, self.num_ng - 1)).unsqueeze(dim=1)
+        neg_items = torch.tensor(np.random.choice(self.N_item, self.num_ng // 2)).unsqueeze(dim=1)
+        neg_entites = self.N_item + torch.tensor(np.random.choice(self.N_ent - self.N_item, self.num_ng // 2)).unsqueeze(dim=1)
         neg_answers = torch.cat([neg_items, neg_entites], dim=0)
         query = pos[:-1].expand(self.num_ng, -1)
         negs = torch.cat([query, neg_answers], dim=1)
@@ -193,46 +193,13 @@ class LQADatasetTest(torch.utils.data.Dataset):
         items = torch.arange(self.N_item).unsqueeze(dim=1)
         return torch.cat([queries, items], dim=-1), pos
 
-class BasicIntersection(torch.nn.Module):
-
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-        self.layer1 = torch.nn.Linear(self.dim, self.dim)
-        self.layer2 = torch.nn.Linear(self.dim, self.dim)
-        torch.nn.init.xavier_uniform_(self.layer1.weight)
-        torch.nn.init.xavier_uniform_(self.layer2.weight)
-
-    def forward(self, q_emb_1, q_emb_2):
-        embeddings = torch.cat([q_emb_1.unsqueeze(dim=1), q_emb_2.unsqueeze(dim=1)], dim=1)
-        layer1_act = torch.nn.functional.relu(self.layer1(embeddings))
-        attention = torch.nn.functional.softmax(self.layer2(layer1_act), dim=0)
-        return torch.sum(attention * embeddings, dim=1)
-
-class FusionNet(torch.nn.Module):
+class Expert(torch.nn.Module):
     
     def __init__(self, emb_dim):
         super().__init__()
         self.emb_dim = emb_dim
         self.layer1 = torch.nn.Linear(self.emb_dim * 2, self.emb_dim) 
-        self.layer2 = torch.nn.Linear(self.emb_dim, self.emb_dim) 
-        torch.nn.init.xavier_uniform_(self.layer1.weight.data)
-        torch.nn.init.xavier_uniform_(self.layer2.weight.data)
-
-    def forward(self, e_emb, u_emb):
-        x = torch.cat([e_emb, u_emb], dim=-1)
-        x = self.layer1(x)
-        x = torch.nn.functional.relu(x)
-        x = self.layer2(x)
-        return x
-
-class ProjectionNet(torch.nn.Module):
-    
-    def __init__(self, emb_dim):
-        super().__init__()
-        self.emb_dim = emb_dim
-        self.layer1 = torch.nn.Linear(self.emb_dim * 2, self.emb_dim) 
-        self.layer2 = torch.nn.Linear(self.emb_dim, self.emb_dim) 
+        self.layer2 = torch.nn.Linear(self.emb_dim, 1)
         torch.nn.init.xavier_uniform_(self.layer1.weight.data)
         torch.nn.init.xavier_uniform_(self.layer2.weight.data)
 
@@ -241,7 +208,24 @@ class ProjectionNet(torch.nn.Module):
         x = self.layer1(x)
         x = torch.nn.functional.relu(x)
         x = self.layer2(x)
-        return x
+        return x.squeeze(dim=-1)
+
+class Gate(torch.nn.Module):
+    
+    def __init__(self, emb_dim):
+        super().__init__()
+        self.emb_dim = emb_dim
+        self.layer1 = torch.nn.Linear(self.emb_dim * 2, self.emb_dim) 
+        self.layer2 = torch.nn.Linear(self.emb_dim, 3) 
+        torch.nn.init.xavier_uniform_(self.layer1.weight.data)
+        torch.nn.init.xavier_uniform_(self.layer2.weight.data)
+
+    def forward(self, e_emb, r_emb):
+        x = torch.cat([e_emb, r_emb], dim=-1)
+        x = self.layer1(x)
+        x = torch.nn.functional.relu(x)
+        x = self.layer2(x)
+        return torch.softmax(x, dim=-1)
 
 class IntersectionNet(torch.nn.Module):
 
@@ -263,33 +247,23 @@ class LogicRecModel(torch.nn.Module):
     def __init__(self, N_user, N_ent, N_rel, cfg):
         super().__init__()
         self.emb_dim = cfg.emb_dim
-        self.gamma = cfg.gamma
-        self.theta = cfg.theta
         self.num_ng = cfg.num_ng
         self.e_embedding = torch.nn.Embedding(N_ent, cfg.emb_dim)
         self.r_embedding = torch.nn.Embedding(N_rel, cfg.emb_dim)
         self.u_embedding = torch.nn.Embedding(N_user, cfg.emb_dim)
-        self.basic_intersection = BasicIntersection(cfg.emb_dim)
         torch.nn.init.xavier_uniform_(self.e_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.r_embedding.weight.data)
         torch.nn.init.xavier_uniform_(self.u_embedding.weight.data)
-        self.projection = ProjectionNet(cfg.emb_dim)
-        self.fusion = FusionNet(cfg.emb_dim)
         self.intersection = IntersectionNet(cfg.emb_dim)
+        self.expert_rec = Expert(cfg.emb_dim)
+        self.expert_lqa = Expert(cfg.emb_dim)
+        self.expert_logicrec = Expert(self.emb_dim)
+        self.gate_rec = Gate(cfg.emb_dim)
+        self.gate_lqa = Gate(cfg.emb_dim)
+        self.gate_logicrec = Gate(self.emb_dim)
 
-    def _cal_logit(self, a_emb, q_emb):
-        logit = (a_emb * q_emb).sum(dim=-1)
-        return logit
-    
-    # def _cal_contrastive(self, a_emb):
-    #     upper = torch.exp((a_emb[:, 0, :] * a_emb[:, 1, :]).sum(dim=-1))
-    #     lower = torch.exp((a_emb[:, 1, :].unsqueeze(dim=1) * a_emb[:, 1:, :]).sum(dim=-1)).sum(dim=-1)
-    #     return - torch.log(upper / lower + 1e-10).mean()
-
-    # def _cal_contrastive(self, logits):
-    #     upper = torch.exp((logits[:, 0] * logits[:, 1]).sum(dim=-1))
-    #     lower = torch.exp((logits[:, 1].unsqueeze(dim=1) * logits[:, 1:]).sum(dim=-1)).sum(dim=-1)
-    #     return - torch.log(upper / lower + 1e-10).mean()
+    def projection(self, emb_1, emb_2):
+        return emb_1 + emb_2
 
     def forward_kge(self, data):
         h_emb = self.e_embedding(data[:, :, 0])
@@ -297,13 +271,29 @@ class LogicRecModel(torch.nn.Module):
         q_emb = self.projection(h_emb, r_emb)
         a_emb = self.e_embedding(data[:, :, 2])
         
-        return self._cal_logit(a_emb, q_emb)
+        return self.expert_lqa(q_emb, a_emb)
 
     def forward_rs(self, data):
         u_emb = self.u_embedding(data[:, 0, 0])
         i_emb = self.e_embedding(data[:, :, 1])
+
+        return self.expert_rec(u_emb.unsqueeze(dim=1).expand_as(i_emb), i_emb)
+    
+    def forward_multitask(self, q_emb, qu_emb, u_emb, a_emb):
+        logits_rec = self.expert_rec(u_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb)
+        logits_lqa = self.expert_lqa(q_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb)
+        logits_logicrec = self.expert_logicrec(qu_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb)
+        gate_rec = self.gate_rec(u_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb)
+        gate_lqa = self.gate_lqa(q_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb)
+        gate_logicrec = self.gate_logicrec(qu_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb)
+
+        logits = torch.cat([logits_rec.unsqueeze(dim=-1), logits_lqa.unsqueeze(dim=-1), logits_logicrec.unsqueeze(dim=-1)], dim=-1)
         
-        return self._cal_logit(i_emb, u_emb.unsqueeze(dim=1))
+        logits_rec = (logits * gate_rec).sum(dim=-1)
+        logits_lqa = (logits * gate_lqa).sum(dim=-1)
+        logits_logicrec = (logits * gate_logicrec).sum(dim=-1)
+
+        return logits_rec, logits_lqa, logits_logicrec
 
     def forward_1p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -311,12 +301,12 @@ class LogicRecModel(torch.nn.Module):
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
 
-        # e_emb = self.fusion(e_emb, u_emb)
-        # r_emb = self.fusion(r_emb, u_emb)
         q_emb = self.projection(e_emb, r_emb)
-        q_emb = self.fusion(q_emb, u_emb)
+        qu_emb = self.intersection(torch.cat([q_emb.unsqueeze(dim=1), 
+                                              u_emb.unsqueeze(dim=1)], dim=1))
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        logits_rec, logits_lqa, logits_logicrec = self.forward_multitask(q_emb, qu_emb, u_emb, a_emb)
+        return logits_rec, logits_lqa, logits_logicrec
 
     def forward_2p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -325,14 +315,13 @@ class LogicRecModel(torch.nn.Module):
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
 
-        # e_emb = self.fusion(e_emb, u_emb)
-        # r_emb_1 = self.fusion(r_emb_1, u_emb)
-        # r_emb_2 = self.fusion(r_emb_2, u_emb)
         q_emb = self.projection(e_emb, r_emb_1)
         q_emb = self.projection(q_emb, r_emb_2)
-        q_emb = self.fusion(q_emb, u_emb)
+        qu_emb = self.intersection(torch.cat([q_emb.unsqueeze(dim=1), 
+                                              u_emb.unsqueeze(dim=1)], dim=1))
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        logits_rec, logits_lqa, logits_logicrec = self.forward_multitask(q_emb, qu_emb, u_emb, a_emb)
+        return logits_rec, logits_lqa, logits_logicrec
 
     def forward_3p(self, data):
         e_emb = self.e_embedding(data[:, 0, 0])
@@ -342,16 +331,14 @@ class LogicRecModel(torch.nn.Module):
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
 
-        # e_emb = self.fusion(e_emb, u_emb)
-        # r_emb_1 = self.fusion(r_emb_1, u_emb)
-        # r_emb_2 = self.fusion(r_emb_2, u_emb)
-        # r_emb_3 = self.fusion(r_emb_3, u_emb)
         q_emb = self.projection(e_emb, r_emb_1)
         q_emb = self.projection(q_emb, r_emb_2)
         q_emb = self.projection(q_emb, r_emb_3)
-        q_emb = self.fusion(q_emb, u_emb)
+        qu_emb = self.intersection(torch.cat([q_emb.unsqueeze(dim=1), 
+                                              u_emb.unsqueeze(dim=1)], dim=1))
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        logits_rec, logits_lqa, logits_logicrec = self.forward_multitask(q_emb, qu_emb, u_emb, a_emb)
+        return logits_rec, logits_lqa, logits_logicrec
 
     def forward_2i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -361,17 +348,16 @@ class LogicRecModel(torch.nn.Module):
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
 
-        # e_emb_1 = self.fusion(e_emb_1, u_emb)
-        # e_emb_2 = self.fusion(e_emb_2, u_emb)
-        # r_emb_1 = self.fusion(r_emb_1, u_emb)
-        # r_emb_2 = self.fusion(r_emb_2, u_emb)
         q_emb_1 = self.projection(e_emb_1, r_emb_1)
         q_emb_2 = self.projection(e_emb_2, r_emb_2)
         q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                            q_emb_2.unsqueeze(dim=1)], dim=1))
-        q_emb = self.fusion(q_emb, u_emb)
+                                             q_emb_2.unsqueeze(dim=1)], dim=1))
+        qu_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                              q_emb_2.unsqueeze(dim=1),
+                                              u_emb.unsqueeze(dim=1)], dim=1))
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        logits_rec, logits_lqa, logits_logicrec = self.forward_multitask(q_emb, qu_emb, u_emb, a_emb)
+        return logits_rec, logits_lqa, logits_logicrec
 
     def forward_3i(self, data):
         e_emb_1 = self.e_embedding(data[:, 0, 0])
@@ -383,21 +369,19 @@ class LogicRecModel(torch.nn.Module):
         u_emb = self.u_embedding(data[:, 0, -2])
         a_emb = self.e_embedding(data[:, :, -1])
 
-        # e_emb_1 = self.fusion(e_emb_1, u_emb)
-        # e_emb_2 = self.fusion(e_emb_2, u_emb)
-        # e_emb_3 = self.fusion(e_emb_3, u_emb)
-        # r_emb_1 = self.fusion(r_emb_1, u_emb)
-        # r_emb_2 = self.fusion(r_emb_2, u_emb)
-        # r_emb_3 = self.fusion(r_emb_3, u_emb)
         q_emb_1 = self.projection(e_emb_1, r_emb_1)
         q_emb_2 = self.projection(e_emb_2, r_emb_2)
         q_emb_3 = self.projection(e_emb_3, r_emb_3)
         q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                              q_emb_2.unsqueeze(dim=1),
                                              q_emb_3.unsqueeze(dim=1)], dim=1))
-        q_emb = self.fusion(q_emb, u_emb)
+        qu_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                              q_emb_2.unsqueeze(dim=1),
+                                              q_emb_3.unsqueeze(dim=1),
+                                              u_emb.unsqueeze(dim=1)], dim=1))
 
-        return self._cal_logit(a_emb, q_emb.unsqueeze(dim=1))
+        logits_rec, logits_lqa, logits_logicrec = self.forward_multitask(q_emb, qu_emb, u_emb, a_emb)
+        return logits_rec, logits_lqa, logits_logicrec
 
     def get_loss(self, data, flag):
         if flag == 'kge':
@@ -405,23 +389,24 @@ class LogicRecModel(torch.nn.Module):
             return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=1) - logits[:, 1:]).mean()
         elif flag == 'rs':
             logits = self.forward_rs(data)
+            return - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=1) - logits[:, 1:]).mean()
         elif flag == '1p':
-            logits = self.forward_1p(data)
+            logits_rec, logits_lqa, logits_logicrec = self.forward_1p(data)
         elif flag == '2p':
-            logits = self.forward_2p(data)
+            logits_rec, logits_lqa, logits_logicrec = self.forward_2p(data)
         elif flag == '3p':
-            logits = self.forward_3p(data)
+            logits_rec, logits_lqa, logits_logicrec = self.forward_3p(data)
         elif flag == '2i':
-            logits = self.forward_2i(data)
+            logits_rec, logits_lqa, logits_logicrec = self.forward_2i(data)
         elif flag == '3i':
-            logits = self.forward_3i(data)
+            logits_rec, logits_lqa, logits_logicrec = self.forward_3i(data)
         else:
             raise ValueError
         
-        upper = - torch.nn.functional.logsigmoid(logits[:, 0].unsqueeze(dim=1) - logits[:, 1:]).mean()
-        # lower = - torch.nn.functional.logsigmoid(logits[:, 1].unsqueeze(dim=1) - logits[:, 2:]).mean()
-        # return upper + self.theta * lower
-        return upper
+        loss_rec = - torch.nn.functional.logsigmoid(logits_rec[:, 0].unsqueeze(dim=1) - logits_rec[:, 1:]).mean()
+        loss_lqa = - torch.nn.functional.logsigmoid(logits_lqa[:, 0].unsqueeze(dim=1) - logits_lqa[:, 1:]).mean()
+        loss_logicrec = - torch.nn.functional.logsigmoid(logits_logicrec[:, 0].unsqueeze(dim=1) - logits_logicrec[:, 1:]).mean()
+        return loss_rec + loss_lqa + loss_logicrec
 
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
@@ -460,15 +445,15 @@ def evaluate(dataloader, model, device, train_dict, flag):
         for possible, pos in dataloader:
             possible = possible.to(device)
             if flag == '1p':
-                logits = model.forward_1p(possible)[0]
+                logits = model.forward_1p(possible)[-1][0]
             elif flag == '2p':
-                logits = model.forward_2p(possible)[0]
+                logits = model.forward_2p(possible)[-1][0]
             elif flag == '3p':
-                logits = model.forward_3p(possible)[0]
+                logits = model.forward_3p(possible)[-1][0]
             elif flag == '2i':
-                logits = model.forward_2i(possible)[0]
+                logits = model.forward_2i(possible)[-1][0]
             elif flag == '3i':
-                logits = model.forward_3i(possible)[0]
+                logits = model.forward_3i(possible)[-1][0]
             else:
                 raise ValueError
             flt = train_dict[pos[0][-2].item()]
@@ -496,12 +481,7 @@ def evaluate(dataloader, model, device, train_dict, flag):
     ndcg10 = round(sum(results[4])/len(results[4]), 3)
     ndcg20 = round(sum(results[5])/len(results[5]), 3)
     
-    print(f'MR: {r}', flush=True)
-    print(f'MRR: {rr}', flush=True)
-    print(f'Hit@10: {h10}', flush=True)
-    print(f'Hit@20: {h20}', flush=True)
-    print(f'nDCG@10: {ndcg10}', flush=True)
-    print(f'nDCG@20: {ndcg20}', flush=True)
+    print(f'MR: {r}, MRR: {rr}, Hit@10: {h10}, Hit@20: {h20}, nDCG@10: {ndcg10}, nDCG@20: {ndcg20}', flush=True)
     
     return r, rr, h10, h20, ndcg10, ndcg20
 
@@ -517,17 +497,14 @@ def parse_args(args=None):
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
-    parser.add_argument('--gamma', default=12, type=int)
-    parser.add_argument('--theta', default=0.1, type=float)
     parser.add_argument('--lr', default=1e-3, type=int)
     parser.add_argument('--wd', default=0, type=int)
-    parser.add_argument('--fuse', default=1, type=int)
     parser.add_argument('--max_steps', default=100000, type=int)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
-    parser.add_argument('--tolerance', default=10, type=int)
+    parser.add_argument('--tolerance', default=5, type=int)
     parser.add_argument('--valid_interval', default=1000, type=int)
     return parser.parse_args(args)
 
