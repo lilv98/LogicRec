@@ -665,8 +665,8 @@ def parse_args(args=None):
     parser.add_argument('--gamma', default=12, type=int)
     parser.add_argument('--cen', default=0.02, type=float)
     parser.add_argument('--emb_dim', default=256, type=int)
-    parser.add_argument('--lr', default=1e-3, type=int)
-    parser.add_argument('--wd', default=0, type=int)
+    parser.add_argument('--lr', default=1e-3, type=float)
+    parser.add_argument('--wd', default=0, type=float)
     parser.add_argument('--max_steps', default=100000, type=int)
     # vec, box, beta, gamma, fuzzy, cqd
     parser.add_argument('--base_model', default='vec', type=str)
