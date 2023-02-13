@@ -46,29 +46,28 @@ def read_data(path):
     N_ent = len(all_e)
     assert all_e[N_item - 1].strip('\n').split(' ')[0] == all_i[-1].strip('\n').split(' ')[2]
     
-    N_rel = 0
+    N_rel = -1
     with open(path + '/relation_list.txt') as f:
         for line in f:
             N_rel += 1
-    print(f'N_rel: {N_rel}')
+
+    N_user = -1
+    with open(path + '/user_list.txt') as f:
+        for line in f:
+            N_user += 1
+
     print(f'N_item: {N_item}')
     print(f'N_ent: {N_ent}')
-    
-    train_dict = {}
-    with open(path + '/input/baseline_train.txt') as f:
+    print(f'N_rel: {N_rel}')
+    print(f'N_user: {N_user}')
+
+    filters = {}
+    with open(path + '/train.txt') as f:
         for line in f:
             line = line.strip('\n').split(' ')
-            train_dict[int(line[0])] = [int(x) for x in line[1:]]
-    
-    test_dict = {}
-    with open(path + '/input/baseline_test.txt') as f:
-        for line in f:
-            line = line.strip('\n').split(' ')
-            test_dict[int(line[0])] = [int(x) for x in line[1:]]
-            
-    assert len(set(test_dict.keys()) | set(train_dict.keys())) == len(train_dict)
-    N_user = len(train_dict)
-    return N_rel, N_item, N_ent, N_user, train_dict
+            filters[int(line[0])] = set([int(x) for x in line[1:]])
+
+    return N_rel, N_item, N_ent, N_user, filters
 
 class LQADatasetTrain(torch.utils.data.Dataset):
     def __init__(self, N_item, N_ent, data, cfg):
@@ -659,7 +658,7 @@ def iterator(dataloader):
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='../data/', type=str)
-    parser.add_argument('--dataset', default='amazon-book', type=str)
+    parser.add_argument('--dataset', default='last-fm', type=str)
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--gamma', default=12, type=int)
@@ -668,7 +667,6 @@ def parse_args(args=None):
     parser.add_argument('--lr', default=1e-3, type=float)
     parser.add_argument('--wd', default=0, type=float)
     parser.add_argument('--max_steps', default=100000, type=int)
-    # vec, box, beta, gamma, fuzzy, cqd
     parser.add_argument('--base_model', default='vec', type=str)
     parser.add_argument('--num_workers', default=4, type=int)
     parser.add_argument('--bs', default=1024, type=int)

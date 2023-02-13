@@ -168,7 +168,7 @@ def construct_2p_train(t2hr_dict_train, hr2t_dict_train, rec_train_dict, k):
 
     return ret
 
-def construct_2p_test(t2hr_dict_test, rec_test_dict, k):
+def construct_2p_test(t2hr_dict_test, t2hr_dict_train, rec_test_dict, k):
     users = list(rec_test_dict.keys())
     ret = []
     with tqdm.tqdm(total=k) as pbar:
@@ -178,7 +178,7 @@ def construct_2p_test(t2hr_dict_test, rec_test_dict, k):
                 item = np.random.choice(list(rec_test_dict[user]))
                 hrs = list(t2hr_dict_test[item])
                 hr = hrs[np.random.choice(range(len(hrs)))]
-                hrs2 = list(t2hr_dict_test[hr[0]])
+                hrs2 = list(t2hr_dict_train[hr[0]])
                 hr2 = hrs2[np.random.choice(range(len(hrs2)))]
                 ret.append([hr2[0], hr2[1], hr[1], user, item])
                 pbar.update(1)
@@ -250,7 +250,7 @@ def construct_3p_train(t2hr_dict_train, hr2t_dict_train, rec_train_dict, k):
 
     return ret
 
-def construct_3p_test(t2hr_dict_test, rec_test_dict, k):
+def construct_3p_test(t2hr_dict_test, t2hr_dict_train, rec_test_dict, k):
     users = list(rec_test_dict.keys())
     ret = []
     with tqdm.tqdm(total=k) as pbar:
@@ -260,9 +260,9 @@ def construct_3p_test(t2hr_dict_test, rec_test_dict, k):
                 item = np.random.choice(list(rec_test_dict[user]))
                 hrs = list(t2hr_dict_test[item])
                 hr = hrs[np.random.choice(range(len(hrs)))]
-                hrs2 = list(t2hr_dict_test[hr[0]])
+                hrs2 = list(t2hr_dict_train[hr[0]])
                 hr2 = hrs2[np.random.choice(range(len(hrs2)))]
-                hrs3 = list(t2hr_dict_test[hr2[0]])
+                hrs3 = list(t2hr_dict_train[hr2[0]])
                 hr3 = hrs3[np.random.choice(range(len(hrs3)))]
                 ret.append([hr3[0], hr3[1], hr2[1], hr[1], user, item])
                 pbar.update(1)
@@ -299,7 +299,7 @@ def construct_2i_train(t2hr_dict_train, hr2t_dict_train, rec_train_dict, k):
 
     return ret
 
-def construct_2i_test(t2hr_dict_test, rec_test_dict, k):
+def construct_2i_test(t2hr_dict_test, t2hr_dict_train, rec_test_dict, k):
     users = list(rec_test_dict.keys())
     ret = []
     with tqdm.tqdm(total=k) as pbar:
@@ -309,7 +309,7 @@ def construct_2i_test(t2hr_dict_test, rec_test_dict, k):
                 item = np.random.choice(list(rec_test_dict[user]))
                 hrs1 = list(t2hr_dict_test[item])
                 hr1 = hrs1[np.random.choice(range(len(hrs1)))]
-                hrs2 = list(t2hr_dict_test[item])
+                hrs2 = list(t2hr_dict_train[item])
                 hr2 = hrs2[np.random.choice(range(len(hrs2)))]
                 assert hr1 != hr2
                 ret.append([hr1[0], hr1[1], hr2[0], hr2[1], user, item])
@@ -349,7 +349,7 @@ def construct_3i_train(t2hr_dict_train, hr2t_dict_train, rec_train_dict, k):
 
     return ret
 
-def construct_3i_test(t2hr_dict_test, rec_test_dict, k):
+def construct_3i_test(t2hr_dict_test, t2hr_dict_train, rec_test_dict, k):
     users = list(rec_test_dict.keys())
     ret = []
     with tqdm.tqdm(total=k) as pbar:
@@ -359,9 +359,9 @@ def construct_3i_test(t2hr_dict_test, rec_test_dict, k):
                 item = np.random.choice(list(rec_test_dict[user]))
                 hrs1 = list(t2hr_dict_test[item])
                 hr1 = hrs1[np.random.choice(range(len(hrs1)))]
-                hrs2 = list(t2hr_dict_test[item])
+                hrs2 = list(t2hr_dict_train[item])
                 hr2 = hrs2[np.random.choice(range(len(hrs2)))]
-                hrs3 = list(t2hr_dict_test[item])
+                hrs3 = list(t2hr_dict_train[item])
                 hr3 = hrs3[np.random.choice(range(len(hrs3)))]
                 assert hr1 != hr2 != hr3
                 ret.append([hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user, item])
@@ -416,7 +416,7 @@ if __name__ == '__main__':
     # 2p Test Format: [e_1, r_1, r_2, u, joint answer]
     print('Constructing 2p...')
     data_2p_train = construct_2p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    data_2p_test = construct_2p_test(kg_t2hr_dict_test, rec_test_dict, k=cfg.N_test)
+    data_2p_test = construct_2p_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
     print(f'Stats 2p: #Train: {len(data_2p_train)}, #Test: {len(data_2p_test)}')
     save_obj(data_2p_train, input_path + '2p_train.pkl')
     save_obj(data_2p_test, input_path + '2p_test.pkl')
@@ -425,7 +425,7 @@ if __name__ == '__main__':
     # 3p Test Format: [e_1, r_1, r_2, r_3, u, joint answer]
     print('Constructing 3p...')
     data_3p_train = construct_3p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    data_3p_test = construct_3p_test(kg_t2hr_dict_test, rec_test_dict, k=cfg.N_test)
+    data_3p_test = construct_3p_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
     print(f'Stats 3p: #Train: {len(data_3p_train)}, #Test: {len(data_3p_test)}')
     save_obj(data_3p_train, input_path + '3p_train.pkl')
     save_obj(data_3p_test, input_path + '3p_test.pkl')
@@ -434,7 +434,7 @@ if __name__ == '__main__':
     # 2i Test Format: [e_1, r_1, e_2, r_2, u, joint answer]
     print('Constructing 2i...')
     data_2i_train = construct_2i_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    data_2i_test = construct_2i_test(kg_t2hr_dict_test, rec_test_dict, k=cfg.N_test)
+    data_2i_test = construct_2i_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
     print(f'Stats 2i: #Train: {len(data_2i_train)}, #Test: {len(data_2i_test)}')
     save_obj(data_2i_train, input_path + '2i_train.pkl')
     save_obj(data_2i_test, input_path + '2i_test.pkl')
@@ -443,7 +443,7 @@ if __name__ == '__main__':
     # 3i Test Format: [e_1, r_1, e_2, r_2, e_3, r_3, u, joint answer]
     print('Constructing 3i...')
     data_3i_train = construct_3i_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    data_3i_test = construct_3i_test(kg_t2hr_dict_test, rec_test_dict, k=cfg.N_test)
+    data_3i_test = construct_3i_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
     print(f'Stats 3i: #Train: {len(data_3i_train)}, #Test: {len(data_3i_test)}')
     save_obj(data_3i_train, input_path + '3i_train.pkl')
     save_obj(data_3i_test, input_path + '3i_test.pkl')

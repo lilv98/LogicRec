@@ -12,5 +12,4 @@
 
 # python logicrec.py --verbose 0 --add_loss 1 --lr 0.01
 # python ppc.py --dataset amazon-book
-# python ppc.py --dataset last-fm
-python ppc.py --dataset yelp2018
+python ppc.py --dataset last-fm
