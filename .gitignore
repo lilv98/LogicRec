@@ -1,5 +1,8 @@
 /code/*.log
+/code/*.err
+/code/*.out
 /data
+/tmp
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

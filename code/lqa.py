@@ -70,9 +70,8 @@ def read_data(path):
     return N_rel, N_item, N_ent, N_user, filters
 
 class LQADatasetTrain(torch.utils.data.Dataset):
-    def __init__(self, N_item, N_ent, data, cfg):
+    def __init__(self, N_ent, data, cfg):
         super().__init__()
-        self.N_item = N_item
         self.N_ent = N_ent
         self.num_ng = cfg.num_ng
         self.data = self._get_data(data)
@@ -81,7 +80,7 @@ class LQADatasetTrain(torch.utils.data.Dataset):
         ret = []
         for query in data:
             query_as_list = list(query)
-            items = data[query]
+            items = data[query]['both']
             for item in items:
                 query_as_list.extend([item])
                 ret.append(query_as_list)
@@ -93,7 +92,6 @@ class LQADatasetTrain(torch.utils.data.Dataset):
     
     def __getitem__(self, idx):
         pos = self.data[idx]
-        # neg_answers = torch.tensor(np.random.choice(self.N_item, self.num_ng)).unsqueeze(dim=1)
         neg_answers = torch.tensor(np.random.choice(self.N_ent, self.num_ng)).unsqueeze(dim=1)
         query = pos[:-1].expand(self.num_ng, -1)
         negs = torch.cat([query, neg_answers], dim=1)
@@ -110,14 +108,11 @@ class LQADatasetTest(torch.utils.data.Dataset):
         self.data = self._get_data(data)
 
     def _get_data(self, data):
-        ret = []
-        for query in data:
-            query_as_list = list(query)
-            ret.append(query_as_list)
+        data = torch.tensor(data)
         if self.stage == 'valid':
-            return torch.tensor(ret)[:len(ret) // 2]
+            return data[:len(data) // 2]
         elif self.stage == 'test':
-            return torch.tensor(ret)[len(ret) // 2:]
+            return data[len(data) // 2:]
         else:
             raise ValueError
 
@@ -658,7 +653,7 @@ def iterator(dataloader):
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='../data/', type=str)
-    parser.add_argument('--dataset', default='last-fm', type=str)
+    parser.add_argument('--dataset', default='amazon-book', type=str)
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--gamma', default=12, type=int)
@@ -668,7 +663,7 @@ def parse_args(args=None):
     parser.add_argument('--wd', default=0, type=float)
     parser.add_argument('--max_steps', default=100000, type=int)
     parser.add_argument('--base_model', default='vec', type=str)
-    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--num_workers', default=2, type=int)
     parser.add_argument('--bs', default=1024, type=int)
     parser.add_argument('--verbose', default=1, type=int)
     parser.add_argument('--gpu', default=0, type=int)
@@ -684,27 +679,35 @@ if __name__ == '__main__':
     seed_everything(cfg.seed)
     device = torch.device(f'cuda:{cfg.gpu}' if torch.cuda.is_available() else 'cpu')
     input_path = cfg.data_root + cfg.dataset
-    N_rel, N_item, N_ent, N_user, train_dict = read_data(input_path)
+    save_root = f'../tmp/{cfg.base_model}_{cfg.dataset}_{cfg.emb_dim}_{cfg.num_ng}_{cfg.lr}_{cfg.bs}/'
+    if not os.path.exists(save_root):
+        os.makedirs(save_root)
+    N_rel, N_item, N_ent, N_user, filters = read_data(input_path)
     
     train_1p, test_1p = load_obj(input_path + '/input/1p_train.pkl'), load_obj(input_path + '/input/1p_test.pkl')
+    print('Read 1p done')
     train_2p, test_2p = load_obj(input_path + '/input/2p_train.pkl'), load_obj(input_path + '/input/2p_test.pkl')
+    print('Read 2p done')
     train_3p, test_3p = load_obj(input_path + '/input/3p_train.pkl'), load_obj(input_path + '/input/3p_test.pkl')
+    print('Read 3p done')
     train_2i, test_2i = load_obj(input_path + '/input/2i_train.pkl'), load_obj(input_path + '/input/2i_test.pkl')
+    print('Read 2i done')
     train_3i, test_3i = load_obj(input_path + '/input/3i_train.pkl'), load_obj(input_path + '/input/3i_test.pkl')
-    
-    lqa_dataset_1p_train = LQADatasetTrain(N_item, N_ent, train_1p, cfg)
+    print('Read 3i done')
+
+    lqa_dataset_1p_train = LQADatasetTrain(N_ent, train_1p, cfg)
     lqa_dataset_1p_valid = LQADatasetTest(N_item, test_1p, cfg, stage='valid')
     lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg, stage='test')
-    lqa_dataset_2p_train = LQADatasetTrain(N_item, N_ent, train_2p, cfg)
+    lqa_dataset_2p_train = LQADatasetTrain(N_ent, train_2p, cfg)
     lqa_dataset_2p_valid = LQADatasetTest(N_item, test_2p, cfg, stage='valid')
     lqa_dataset_2p_test = LQADatasetTest(N_item, test_2p, cfg, stage='test')
-    lqa_dataset_3p_train = LQADatasetTrain(N_item, N_ent, train_3p, cfg)
+    lqa_dataset_3p_train = LQADatasetTrain(N_ent, train_3p, cfg)
     lqa_dataset_3p_valid = LQADatasetTest(N_item, test_3p, cfg, stage='valid')
     lqa_dataset_3p_test = LQADatasetTest(N_item, test_3p, cfg, stage='test')
-    lqa_dataset_2i_train = LQADatasetTrain(N_item, N_ent, train_2i, cfg)
+    lqa_dataset_2i_train = LQADatasetTrain(N_ent, train_2i, cfg)
     lqa_dataset_2i_valid = LQADatasetTest(N_item, test_2i, cfg, stage='valid')
     lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg, stage='test')
-    lqa_dataset_3i_train = LQADatasetTrain(N_item, N_ent, train_3i, cfg)
+    lqa_dataset_3i_train = LQADatasetTrain(N_ent, train_3i, cfg)
     lqa_dataset_3i_valid = LQADatasetTest(N_item, test_3i, cfg, stage='valid')
     lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg, stage='test')
     
@@ -849,7 +852,7 @@ if __name__ == '__main__':
             for i in range(len(query_types)):
                 flag = query_types[i]
                 print(f'{flag}:')
-                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(valid_dataloaders[i], model, device, train_dict, flag)
+                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(valid_dataloaders[i], model, device, filters, flag)
                 mmrr.append(rr)
             value = sum(mmrr) / len(mmrr)
             if value >= max_value:
@@ -857,11 +860,14 @@ if __name__ == '__main__':
                 tolerance = cfg.tolerance
             else:
                 tolerance -= 1
+            torch.save(model.state_dict(), save_root + (str(step + 1)))
 
         if (tolerance == 0) or ((step + 1) == cfg.max_steps):
             print('Testing...')
+            print(f'Best performance at epoch {step - cfg.tolerance * cfg.valid_interval + 1}')
+            model.load_state_dict(torch.load(save_root + str(step - cfg.tolerance * cfg.valid_interval + 1)))
             for i in range(len(query_types)):
                 flag = query_types[i]
                 print(f'{flag}:')
-                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(test_dataloaders[i], model, device, train_dict, flag)
+                r, rr, h10, h20, ndcg10, ndcg20 = evaluate(test_dataloaders[i], model, device, filters, flag)
             break

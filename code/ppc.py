@@ -285,17 +285,16 @@ def construct_2i_train(t2hr_dict_train, hr2t_dict_train, rec_train_dict, k):
                 hr2 = hrs2[np.random.choice(range(len(hrs2)))]
                 assert hr1 != hr2
                 query = (hr1[0], hr1[1], hr2[0], hr2[1], user)
-                ret[query] = {'both': item}
-                pbar.update(1)
+
+                lqa_answers = hr2t_dict_train[(query[0], query[1])] & hr2t_dict_train[(query[2], query[3])]
+                if len(lqa_answers) < 10000:
+                    ret[query] = {'lqa': lqa_answers, 'rec': rec_train_dict[query[-1]], 'both': item}
+                    both = (lqa_answers & ret[query]['rec'])
+                    assert ret[query]['both'] in both
+                    ret[query]['both'] = both
+                    pbar.update(1)
             except:
                 pass
-
-    for query in tqdm.tqdm(ret):
-        ret[query]['lqa'] = hr2t_dict_train[(query[0], query[1])] & hr2t_dict_train[(query[2], query[3])]
-        ret[query]['rec'] = rec_train_dict[query[-1]]
-        both = (ret[query]['lqa'] & ret[query]['rec'])
-        assert ret[query]['both'] in both
-        ret[query]['both'] = both
 
     return ret
 
@@ -335,17 +334,15 @@ def construct_3i_train(t2hr_dict_train, hr2t_dict_train, rec_train_dict, k):
                 hr3 = hrs3[np.random.choice(range(len(hrs3)))]
                 assert hr1 != hr2 != hr3
                 query = (hr1[0], hr1[1], hr2[0], hr2[1], hr3[0], hr3[1], user)
-                ret[query] = {'both': item}
-                pbar.update(1)
+                lqa_answers = hr2t_dict_train[(query[0], query[1])] & hr2t_dict_train[(query[2], query[3])] & hr2t_dict_train[(query[4], query[5])]
+                if len(lqa_answers) < 10000:
+                    ret[query] = {'lqa': lqa_answers, 'rec': rec_train_dict[query[-1]], 'both': item}
+                    both = (lqa_answers & ret[query]['rec'])
+                    assert ret[query]['both'] in both
+                    ret[query]['both'] = both
+                    pbar.update(1)
             except:
                 pass
-
-    for query in tqdm.tqdm(ret):
-        ret[query]['lqa'] = hr2t_dict_train[(query[0], query[1])] & hr2t_dict_train[(query[2], query[3])] & hr2t_dict_train[(query[4], query[5])]
-        ret[query]['rec'] = rec_train_dict[query[-1]]
-        both = (ret[query]['lqa'] & ret[query]['rec'])
-        assert ret[query]['both'] in both
-        ret[query]['both'] = both
 
     return ret
 
