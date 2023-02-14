@@ -584,7 +584,7 @@ def ndcg(true, rank, k):
     if rank > k:
         return 0
     else:
-        pred[i - 1] = 1
+        pred[rank - 1] = 1
         idcg = (true * discount).sum()
         dcg = (pred * discount).sum()
         return (dcg / idcg).item()
