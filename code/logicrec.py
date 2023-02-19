@@ -70,11 +70,13 @@ def read_data(path):
     return N_rel, N_item, N_ent, N_user, filters
 
 class LQADatasetTrain(torch.utils.data.Dataset):
-    def __init__(self, N_ent, data, cfg):
+    def __init__(self, N_item, N_ent, data, cfg):
         super().__init__()
+        self.N_item = N_item
         self.N_ent = N_ent
         self.num_ng = cfg.num_ng
         self.data_dict = data
+        self.item_candidates = set(range(self.N_item))
         self.all_candidates = set(range(self.N_ent))
         self.data = self._get_data(data)
 
@@ -96,9 +98,9 @@ class LQADatasetTrain(torch.utils.data.Dataset):
         pos = self.data[idx]
         query = tuple(pos[:-1].numpy().tolist())
         answers = self.data_dict[query]
-        lqa_answers = answers['lqa']
+        lqa_answers = (answers['lqa'] & self.item_candidates)
         rec_answers = answers['rec']
-        query_expanded = pos[:-1].expand(self.num_ng, -1)
+        # query_expanded = pos[:-1].expand(self.num_ng, -1)
 
         lqa_not_rec_cadidates = lqa_answers - rec_answers
         rec_not_lqa_cadidates = rec_answers - lqa_answers
@@ -115,7 +117,8 @@ class LQADatasetTrain(torch.utils.data.Dataset):
         else:
             rec_sample = torch.cat([pos[:-1], torch.full((4, ), 2).long()], dim=0).unsqueeze(dim=0)
 
-        neg_candidates = self.all_candidates - lqa_answers - rec_answers
+        # neg_candidates = self.all_candidates - lqa_answers - rec_answers
+        neg_candidates = self.all_candidates
         neg_answer = torch.tensor(random.sample(neg_candidates, k=1))
         neg_sample = torch.cat([pos[:-1], neg_answer, torch.tensor([0, 0, 0])], dim=0).unsqueeze(dim=0)
 
@@ -248,15 +251,18 @@ class LogicRecModel(torch.nn.Module):
         # emb_lqa = emb_1 * gate_lqa[:, 0].unsqueeze(dim=-1) + emb_2 * gate_lqa[:, 1].unsqueeze(dim=-1)
         # emb_rec = emb_1 * gate_rec[:, 0].unsqueeze(dim=-1) + emb_2 * gate_rec[:, 1].unsqueeze(dim=-1)
         # emb_both = emb_1 * gate_both[:, 0].unsqueeze(dim=-1) + emb_2 * gate_both[:, 1].unsqueeze(dim=-1)
-        # # preds_lqa = - torch.norm(a_emb - q_emb.unsqueeze(dim=1), p=1, dim=-1)
-        # # preds_rec = - torch.norm(a_emb - u_emb.unsqueeze(dim=1), p=1, dim=-1)
-        # # preds_both = - torch.norm(a_emb - qu_emb.unsqueeze(dim=1), p=1, dim=-1)
+        # preds_lqa = - torch.norm(a_emb - q_emb.unsqueeze(dim=1), p=1, dim=-1)
+        # preds_rec = - torch.norm(a_emb - u_emb.unsqueeze(dim=1), p=1, dim=-1)
+        # preds_both = - torch.norm(a_emb - qu_emb.unsqueeze(dim=1), p=1, dim=-1)
         # preds_lqa = self.tower_lqa(torch.cat([emb_lqa.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
         # preds_rec = self.tower_rec(torch.cat([emb_rec.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
         # preds_both = self.tower_both(torch.cat([emb_both.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
 
-        preds_lqa = self.tower_lqa(torch.cat([q_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
-        preds_rec = self.tower_rec(torch.cat([u_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
+        # preds_lqa = self.tower_lqa(torch.cat([q_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
+        # preds_rec = self.tower_rec(torch.cat([u_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
+        # preds_both = self.tower_both(torch.cat([qu_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
+        preds_lqa = self.tower_lqa(torch.cat([qu_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
+        preds_rec = self.tower_rec(torch.cat([qu_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
         preds_both = self.tower_both(torch.cat([qu_emb.unsqueeze(dim=1).expand_as(a_emb), a_emb], dim=-1)).squeeze(dim=-1)
         return preds_lqa, preds_rec, preds_both
 
@@ -371,28 +377,32 @@ class LogicRecModel(torch.nn.Module):
         valid_lqa_and_rec = ((labels_lqa[:, 1] != 2) * (labels_rec[:, 2] != 2)).nonzero().squeeze(dim=-1)
 
         # 0 - 3
-        loss_both_13 = - torch.nn.functional.logsigmoid(preds_both[:, 0] - preds_both[:, 3]).mean()
+        loss_both_03 = - torch.nn.functional.logsigmoid(preds_both[:, 0] - preds_both[:, 3]).mean()
+        return loss_both_03
+        
         # # 0 - 1
-        # loss_both_01 = - torch.nn.functional.logsigmoid(torch.index_select(preds_both, 0, valid_lqa)[:, 0] - torch.index_select(preds_both, 0, valid_lqa)[:, 3]).mean()
+        # loss_both_01 = - torch.nn.functional.logsigmoid(torch.index_select(preds_both, 0, valid_lqa)[:, 0] - torch.index_select(preds_both, 0, valid_lqa)[:, 1]).mean()
         # # 0 - 2
         # loss_both_02 = - torch.nn.functional.logsigmoid(torch.index_select(preds_both, 0, valid_rec)[:, 0] - torch.index_select(preds_both, 0, valid_rec)[:, 2]).mean()
 
-        # 1 - 2
-        loss_lqa_12 = - torch.nn.functional.logsigmoid(torch.index_select(preds_lqa, 0, valid_lqa_and_rec)[:, 1] - torch.index_select(preds_lqa, 0, valid_lqa_and_rec)[:, 2]).mean()
-        # 1 - 3
-        loss_lqa_13 = - torch.nn.functional.logsigmoid(torch.index_select(preds_lqa, 0, valid_lqa)[:, 1] - torch.index_select(preds_lqa, 0, valid_lqa)[:, 3]).mean()
+        # # 1 - 2
+        # loss_lqa_12 = - torch.nn.functional.logsigmoid(torch.index_select(preds_lqa, 0, valid_lqa_and_rec)[:, 1] - torch.index_select(preds_lqa, 0, valid_lqa_and_rec)[:, 2]).mean()
+        # # # 1 - 3
+        # # loss_lqa_13 = - torch.nn.functional.logsigmoid(torch.index_select(preds_lqa, 0, valid_lqa)[:, 1] - torch.index_select(preds_lqa, 0, valid_lqa)[:, 3]).mean()
 
-        # 2 - 1
-        loss_rec_21 = - torch.nn.functional.logsigmoid(torch.index_select(preds_rec, 0, valid_lqa_and_rec)[:, 2] - torch.index_select(preds_rec, 0, valid_lqa_and_rec)[:, 1]).mean()
-        # 2 - 3
-        loss_rec_23 = - torch.nn.functional.logsigmoid(torch.index_select(preds_rec, 0, valid_rec)[:, 2] - torch.index_select(preds_rec, 0, valid_rec)[:, 3]).mean()
+        # # 2 - 1
+        # loss_rec_21 = - torch.nn.functional.logsigmoid(torch.index_select(preds_rec, 0, valid_lqa_and_rec)[:, 2] - torch.index_select(preds_rec, 0, valid_lqa_and_rec)[:, 1]).mean()
+        # # # 2 - 3
+        # # loss_rec_23 = - torch.nn.functional.logsigmoid(torch.index_select(preds_rec, 0, valid_rec)[:, 2] - torch.index_select(preds_rec, 0, valid_rec)[:, 3]).mean()
 
-        # loss_both = (loss_both_13 + loss_both_01 + loss_both_02) / 3
-        loss_both = loss_both_13
-        loss_lqa = (loss_lqa_12 + loss_lqa_13) / 2
-        loss_rec = (loss_rec_21 + loss_rec_23) / 2
+        # loss_both = (loss_both_03 + loss_both_01 + loss_both_02) / 3
+        # # loss_both = loss_both_03
+        # loss_lqa = loss_lqa_12
+        # loss_rec = loss_rec_21
+        # # loss_lqa = (loss_lqa_12 + loss_lqa_13) / 2
+        # # loss_rec = (loss_rec_21 + loss_rec_23) / 2
 
-        return (loss_lqa + loss_rec + self.gamma * loss_both) / 3
+        # return (loss_lqa + loss_rec + self.gamma * loss_both) / (2 + self.gamma)
 
 def get_rank(pos, logits, flt):
     ranking = torch.argsort(logits, descending=True)
@@ -483,7 +493,8 @@ def parse_args(args=None):
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
     parser.add_argument('--emb_dim', default=256, type=int)
-    parser.add_argument('--gamma', default=10, type=int)
+    parser.add_argument('--alpha', default=1, type=int)
+    parser.add_argument('--gamma', default=1, type=int)
     parser.add_argument('--lr', default=1e-3, type=float)
     parser.add_argument('--wd', default=0, type=float)
     parser.add_argument('--max_steps', default=100000, type=int)
@@ -520,19 +531,19 @@ if __name__ == '__main__':
     train_3i, test_3i = load_obj(input_path + '/input/3i_train.pkl'), load_obj(input_path + '/input/3i_test.pkl')
     print('Read 3i done')
 
-    lqa_dataset_1p_train = LQADatasetTrain(N_ent, train_1p, cfg)
+    lqa_dataset_1p_train = LQADatasetTrain(N_item, N_ent, train_1p, cfg)
     lqa_dataset_1p_valid = LQADatasetTest(N_item, test_1p, cfg, stage='valid')
     lqa_dataset_1p_test = LQADatasetTest(N_item, test_1p, cfg, stage='test')
-    lqa_dataset_2p_train = LQADatasetTrain(N_ent, train_2p, cfg)
+    lqa_dataset_2p_train = LQADatasetTrain(N_item, N_ent, train_2p, cfg)
     lqa_dataset_2p_valid = LQADatasetTest(N_item, test_2p, cfg, stage='valid')
     lqa_dataset_2p_test = LQADatasetTest(N_item, test_2p, cfg, stage='test')
-    lqa_dataset_3p_train = LQADatasetTrain(N_ent, train_3p, cfg)
+    lqa_dataset_3p_train = LQADatasetTrain(N_item, N_ent, train_3p, cfg)
     lqa_dataset_3p_valid = LQADatasetTest(N_item, test_3p, cfg, stage='valid')
     lqa_dataset_3p_test = LQADatasetTest(N_item, test_3p, cfg, stage='test')
-    lqa_dataset_2i_train = LQADatasetTrain(N_ent, train_2i, cfg)
+    lqa_dataset_2i_train = LQADatasetTrain(N_item, N_ent, train_2i, cfg)
     lqa_dataset_2i_valid = LQADatasetTest(N_item, test_2i, cfg, stage='valid')
     lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg, stage='test')
-    lqa_dataset_3i_train = LQADatasetTrain(N_ent, train_3i, cfg)
+    lqa_dataset_3i_train = LQADatasetTrain(N_item, N_ent, train_3i, cfg)
     lqa_dataset_3i_valid = LQADatasetTest(N_item, test_3i, cfg, stage='valid')
     lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg, stage='test')
     
@@ -663,7 +674,7 @@ if __name__ == '__main__':
         loss_2i = model.get_loss(next(lqa_dataloader_2i_train).to(device), flag='2i')
         loss_3i = model.get_loss(next(lqa_dataloader_3i_train).to(device), flag='3i')
 
-        loss = (loss_1p + loss_2p + loss_3p + loss_2i + loss_3i) / 5
+        loss = (cfg.alpha * loss_1p + loss_2p + loss_3p + loss_2i + loss_3i) / (4 + cfg.alpha)
 
         optimizer.zero_grad()
         loss.backward()
