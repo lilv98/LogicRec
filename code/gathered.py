@@ -237,6 +237,14 @@ class LQADatasetTest(torch.utils.data.Dataset):
                 pos_as_list.extend([0, 0, pos_item, 1, 1, 1, 4])
             elif self.query_type == '3i':
                 pos_as_list.extend([pos_item, 1, 1, 1, 5])
+            elif self.query_type == 'pi':
+                pos_as_list.extend([0, pos_item, 1, 1, 1, 6])
+            elif self.query_type == 'ip':
+                pos_as_list.extend([0, pos_item, 1, 1, 1, 7])
+            elif self.query_type == '2u':
+                pos_as_list.extend([0, 0, pos_item, 1, 1, 1, 8])
+            elif self.query_type == 'up':
+                pos_as_list.extend([0, pos_item, 1, 1, 1, 9])
             ret.append(pos_as_list)
 
         if self.stage == 'valid':
@@ -509,9 +517,14 @@ class LogicRecModel(torch.nn.Module):
                 q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
                 q_emb_offset, uq_emb_offset, qu_emb_offset = self._mmoe(q_emb_offset, uq_emb_offset, qu_emb_offset, part=1)
 
-            logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
-            logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
-            logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            if 'share' in self.which:
+                logits_q = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            else:
+                logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
 
             return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
@@ -575,9 +588,14 @@ class LogicRecModel(torch.nn.Module):
                 q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
                 q_emb_offset, uq_emb_offset, qu_emb_offset = self._mmoe(q_emb_offset, uq_emb_offset, qu_emb_offset, part=1)
 
-            logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
-            logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
-            logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            if 'share' in self.which:
+                logits_q = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            else:
+                logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
             
             return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
@@ -643,9 +661,14 @@ class LogicRecModel(torch.nn.Module):
                 q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
                 q_emb_offset, uq_emb_offset, qu_emb_offset = self._mmoe(q_emb_offset, uq_emb_offset, qu_emb_offset, part=1)
 
-            logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
-            logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
-            logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            if 'share' in self.which:
+                logits_q = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            else:
+                logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
             
             return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
@@ -720,9 +743,14 @@ class LogicRecModel(torch.nn.Module):
                 q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
                 q_emb_offset, uq_emb_offset, qu_emb_offset = self._mmoe(q_emb_offset, uq_emb_offset, qu_emb_offset, part=1)
 
-            logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
-            logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
-            logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            if 'share' in self.which:
+                logits_q = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            else:
+                logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
             
             return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
@@ -819,9 +847,14 @@ class LogicRecModel(torch.nn.Module):
                 q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
                 q_emb_offset, uq_emb_offset, qu_emb_offset = self._mmoe(q_emb_offset, uq_emb_offset, qu_emb_offset, part=1)
 
-            logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
-            logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
-            logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            if 'share' in self.which:
+                logits_q = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            else:
+                logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
             
             return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
@@ -866,6 +899,430 @@ class LogicRecModel(torch.nn.Module):
 
             return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
+    def forward_pi(self, data):
+        e_emb_1 = self.e_embedding(data[:, 0])
+        r_emb_11 = self.r_embedding(data[:, 1])
+        r_emb_12 = self.r_embedding(data[:, 2])
+        e_emb_2 = self.e_embedding(data[:, 3])
+        r_emb_2 = self.r_embedding(data[:, 4])
+        u_emb = self.u_embedding(data[:, 5])
+        ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
+        a_emb = self.e_embedding(data[:, -5])
+
+        if self.which == 'vec':
+            q_emb_1 = self.projection(self.projection(e_emb_1, r_emb_11), r_emb_12)
+            q_emb_2 = self.projection(e_emb_2, r_emb_2)
+            q_emb_3 = self.projection(u_emb, ur_emb)
+            q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                 q_emb_2.unsqueeze(dim=1), 
+                                                 q_emb_3.unsqueeze(dim=1)], dim=1))
+            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            return torch.cat([logits, logits, logits], dim=1)
+
+        elif 'box' in self.which:
+            r_emb_11_offset = self.offset_embedding(data[:, 1])
+            r_emb_12_offset = self.offset_embedding(data[:, 2])
+            r_emb_2_offset = self.offset_embedding(data[:, 4])
+            ur_emb_offset = self.offset_embedding.weight[-1].unsqueeze(dim=0)
+            
+            q_emb_1 = self.projection(self.projection(e_emb_1, r_emb_11), r_emb_12)
+            q_emb_2 = self.projection(e_emb_2, r_emb_2)
+            q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                 q_emb_2.unsqueeze(dim=1)], dim=1))
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                  q_emb_2.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+            
+            q_emb_1_offset = self.projection(self.projection(torch.zeros_like(r_emb_11), r_emb_11_offset), r_emb_12_offset)
+            q_emb_2_offset = self.projection(torch.zeros_like(r_emb_11), r_emb_2_offset)
+            q_emb_offset = self.intersection(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                        q_emb_2_offset.unsqueeze(dim=1)], dim=1))
+            uq_emb_offset = self.projection(torch.zeros_like(r_emb_11), ur_emb_offset)
+            qu_emb_offset = self.intersection(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                         q_emb_2_offset.unsqueeze(dim=1),
+                                                         uq_emb_offset.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+                q_emb_offset, uq_emb_offset, qu_emb_offset = self._mmoe(q_emb_offset, uq_emb_offset, qu_emb_offset, part=1)
+
+            if 'share' in self.which:
+                logits_q = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            else:
+                logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
+        elif 'beta' in self.which:
+            q_emb_1 = self.projection(self.projection(self.regularizer(e_emb_1), r_emb_11), r_emb_12)
+            q_emb_2 = self.projection(self.regularizer(e_emb_2), r_emb_2)
+            uq_emb = self.projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
+
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            uq_emb_alpha, uq_emb_beta = torch.chunk(uq_emb, 2, dim=-1)
+
+            q_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                     q_emb_2_alpha.unsqueeze(dim=1)], dim=1)
+            q_emb_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                    q_emb_2_beta.unsqueeze(dim=1)], dim=1)
+            q_emb_alpha, q_emb_beta = self.intersection(q_emb_alpha, q_emb_beta)
+            qu_emb_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                     q_emb_2_alpha.unsqueeze(dim=1),
+                                     uq_emb_alpha.unsqueeze(dim=1)], dim=1)
+            qu_emb_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                    q_emb_2_beta.unsqueeze(dim=1),
+                                    uq_emb_beta.unsqueeze(dim=1)], dim=1)
+            qu_emb_alpha, qu_emb_beta = self.intersection(qu_emb_alpha, qu_emb_beta)
+
+            if 'mmoe' in self.which:
+                q_emb_alpha, uq_emb_alpha, qu_emb_alpha = self._mmoe(q_emb_alpha, uq_emb_alpha, qu_emb_alpha, part=0)
+                q_emb_beta, uq_emb_beta, qu_emb_beta = self._mmoe(q_emb_beta, uq_emb_beta, qu_emb_beta, part=1)
+
+            q_dist = torch.distributions.beta.Beta(self.regularizer(q_emb_alpha), self.regularizer(q_emb_beta))
+            uq_dist = torch.distributions.beta.Beta(self.regularizer(uq_emb_alpha), self.regularizer(uq_emb_beta))
+            qu_dist = torch.distributions.beta.Beta(self.regularizer(qu_emb_alpha), self.regularizer(qu_emb_beta))
+            logits_q = self._cal_logit_beta(a_emb, q_dist).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_beta(a_emb, uq_dist).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_beta(a_emb, qu_dist).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
+    def forward_ip(self, data):
+        e_emb_1 = self.e_embedding(data[:, 0])
+        r_emb_1 = self.r_embedding(data[:, 1])
+        e_emb_2 = self.e_embedding(data[:, 2])
+        r_emb_2 = self.r_embedding(data[:, 3])
+        r_emb = self.r_embedding(data[:, 4])
+        u_emb = self.u_embedding(data[:, 5])
+        ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
+        a_emb = self.e_embedding(data[:, -5])
+
+        if self.which == 'vec':
+            q_emb_1 = self.projection(e_emb_1, r_emb_1)
+            q_emb_2 = self.projection(e_emb_2, r_emb_2)
+            q_emb_mid = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                     q_emb_2.unsqueeze(dim=1)], dim=1))
+            q_emb_mid = self.projection(q_emb_mid, r_emb)
+            q_emb_3 = self.projection(u_emb, ur_emb)
+            q_emb = self.intersection(torch.cat([q_emb_mid.unsqueeze(dim=1), 
+                                                 q_emb_3.unsqueeze(dim=1)], dim=1))
+            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            return torch.cat([logits, logits, logits], dim=1)
+
+        elif 'box' in self.which:
+            r_emb_1_offset = self.offset_embedding(data[:, 1])
+            r_emb_2_offset = self.offset_embedding(data[:, 3])
+            r_emb_offset = self.offset_embedding(data[:, 4])
+            ur_emb_offset = self.offset_embedding.weight[-1].unsqueeze(dim=0)
+            
+            q_emb_1 = self.projection(e_emb_1, r_emb_1)
+            q_emb_2 = self.projection(e_emb_2, r_emb_2)
+            q_emb_mid = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                     q_emb_2.unsqueeze(dim=1)], dim=1))
+            q_emb = self.projection(q_emb_mid, r_emb)
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb_mid.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+            
+            q_emb_1_offset = self.projection(torch.zeros_like(r_emb_1), r_emb_1_offset)
+            q_emb_2_offset = self.projection(torch.zeros_like(r_emb_2), r_emb_2_offset)
+            q_emb_mid_offset = self.intersection(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                            q_emb_2_offset.unsqueeze(dim=1)], dim=1))
+            q_emb_offset = self.projection(q_emb_mid_offset, r_emb_offset)
+            uq_emb_offset = self.projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            qu_emb_offset = self.intersection(torch.cat([q_emb_offset.unsqueeze(dim=1), 
+                                                         uq_emb_offset.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+                q_emb_offset, uq_emb_offset, qu_emb_offset = self._mmoe(q_emb_offset, uq_emb_offset, qu_emb_offset, part=1)
+
+            if 'share' in self.which:
+                logits_q = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            else:
+                logits_q = self._cal_logit_box(a_emb, q_emb, q_emb_offset).unsqueeze(dim=1)
+                logits_uq = self._cal_logit_box(a_emb, uq_emb, uq_emb_offset).unsqueeze(dim=1)
+                logits_qu = self._cal_logit_box(a_emb, qu_emb, qu_emb_offset).unsqueeze(dim=1)
+            
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
+        elif 'beta' in self.which:
+            q_emb_1 = self.projection(self.regularizer(e_emb_1), r_emb_1)
+            q_emb_2 = self.projection(self.regularizer(e_emb_2), r_emb_2)
+            uq_emb = self.projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
+
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            uq_emb_alpha, uq_emb_beta = torch.chunk(uq_emb, 2, dim=-1)
+
+            q_emb_mid_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                         q_emb_2_alpha.unsqueeze(dim=1)], dim=1)
+            q_emb_mid_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                        q_emb_2_beta.unsqueeze(dim=1)], dim=1)
+            q_emb_mid_alpha, q_emb_mid_beta = self.intersection(q_emb_mid_alpha, q_emb_mid_beta)
+            q_emb_mid = torch.cat([q_emb_mid_alpha, q_emb_mid_beta], dim=-1)
+            q_emb = self.projection(self.regularizer(q_emb_mid), r_emb)
+            q_emb_alpha, q_emb_beta = torch.chunk(q_emb, 2, dim=-1)
+
+            qu_emb_alpha = torch.cat([q_emb_alpha.unsqueeze(dim=1), 
+                                      uq_emb_alpha.unsqueeze(dim=1)], dim=1)
+            qu_emb_beta = torch.cat([q_emb_beta.unsqueeze(dim=1), 
+                                     uq_emb_beta.unsqueeze(dim=1)], dim=1)
+            qu_emb_alpha, qu_emb_beta = self.intersection(qu_emb_alpha, qu_emb_beta)
+
+            if 'mmoe' in self.which:
+                q_emb_alpha, uq_emb_alpha, qu_emb_alpha = self._mmoe(q_emb_alpha, uq_emb_alpha, qu_emb_alpha, part=0)
+                q_emb_beta, uq_emb_beta, qu_emb_beta = self._mmoe(q_emb_beta, uq_emb_beta, qu_emb_beta, part=1)
+
+            q_dist = torch.distributions.beta.Beta(self.regularizer(q_emb_alpha), self.regularizer(q_emb_beta))
+            uq_dist = torch.distributions.beta.Beta(self.regularizer(uq_emb_alpha), self.regularizer(uq_emb_beta))
+            qu_dist = torch.distributions.beta.Beta(self.regularizer(qu_emb_alpha), self.regularizer(qu_emb_beta))
+            logits_q = self._cal_logit_beta(a_emb, q_dist).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_beta(a_emb, uq_dist).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_beta(a_emb, qu_dist).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
+    def forward_2u(self, data):
+        e_emb_1 = self.e_embedding(data[:, 0])
+        r_emb_1 = self.r_embedding(data[:, 1])
+        e_emb_2 = self.e_embedding(data[:, 2])
+        r_emb_2 = self.r_embedding(data[:, 3])
+        u_emb = self.u_embedding(data[:, 4])
+        ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
+        a_emb = self.e_embedding(data[:, -5])
+
+        if self.which == 'vec':
+            q_emb_1 = self.projection(e_emb_1, r_emb_1)
+            q_emb_2 = self.projection(e_emb_2, r_emb_2)
+            uq_emb = self.projection(u_emb, ur_emb)
+            q_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                   uq_emb.unsqueeze(dim=1)], dim=1))
+            q_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
+                                                   uq_emb.unsqueeze(dim=1)], dim=1))
+            logits_1 = self._cal_logit_vec(a_emb, q_emb_1).unsqueeze(dim=1)
+            logits_2 = self._cal_logit_vec(a_emb, q_emb_2).unsqueeze(dim=1)
+            logits = torch.cat([logits_1, logits_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            return torch.cat([logits, logits, logits], dim=1)
+
+        elif 'box' in self.which:
+            r_emb_1_offset = self.offset_embedding(data[:, 1])
+            r_emb_2_offset = self.offset_embedding(data[:, 3])
+            ur_emb_offset = self.offset_embedding.weight[-1].unsqueeze(dim=0)
+            
+            q_emb_1 = self.projection(e_emb_1, r_emb_1)
+            q_emb_2 = self.projection(e_emb_2, r_emb_2)
+            uq_emb_1 = self.projection(u_emb, ur_emb)
+            uq_emb_2 = self.projection(u_emb, ur_emb)
+            qu_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                    uq_emb_1.unsqueeze(dim=1)], dim=1))
+            qu_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
+                                                    uq_emb_2.unsqueeze(dim=1)], dim=1))
+
+            q_emb_1_offset = self.projection(torch.zeros_like(r_emb_1), r_emb_1_offset)
+            q_emb_2_offset = self.projection(torch.zeros_like(r_emb_2), r_emb_2_offset)
+            uq_emb_1_offset = self.projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            uq_emb_2_offset = self.projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            qu_emb_1_offset = self.intersection(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                           uq_emb_1_offset.unsqueeze(dim=1)], dim=1))
+            qu_emb_2_offset = self.intersection(torch.cat([q_emb_2_offset.unsqueeze(dim=1), 
+                                                           uq_emb_2_offset.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb_1, uq_emb_1, qu_emb_1 = self._mmoe(q_emb_1, uq_emb_1, qu_emb_1, part=0)
+                q_emb_2, uq_emb_2, qu_emb_2 = self._mmoe(q_emb_2, uq_emb_1, qu_emb_2, part=0)
+                q_emb_1_offset, uq_emb_1_offset, qu_emb_1_offset = self._mmoe(q_emb_1_offset, uq_emb_1_offset, qu_emb_1_offset, part=1)
+                q_emb_2_offset, uq_emb_2_offset, qu_emb_2_offset = self._mmoe(q_emb_2_offset, uq_emb_2_offset, qu_emb_2_offset, part=1)
+
+            if 'share' in self.which:
+                logits_qu_1 = self._cal_logit_box(a_emb, qu_emb_1, qu_emb_1_offset).unsqueeze(dim=1)
+                logits_qu_2 = self._cal_logit_box(a_emb, qu_emb_2, qu_emb_2_offset).unsqueeze(dim=1)
+                logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+                logits_uq = logits_qu
+                logits_q = logits_qu
+            else:
+                logits_q_1 = self._cal_logit_box(a_emb, q_emb_1, q_emb_1_offset).unsqueeze(dim=1)
+                logits_q_2 = self._cal_logit_box(a_emb, q_emb_2, q_emb_2_offset).unsqueeze(dim=1)
+                logits_q = torch.cat([logits_q_1, logits_q_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+                logits_uq_1 = self._cal_logit_box(a_emb, uq_emb_1, uq_emb_1_offset).unsqueeze(dim=1)
+                logits_uq_2 = self._cal_logit_box(a_emb, uq_emb_2, uq_emb_2_offset).unsqueeze(dim=1)
+                logits_uq = torch.cat([logits_uq_1, logits_uq_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+                logits_qu_1 = self._cal_logit_box(a_emb, qu_emb_1, qu_emb_1_offset).unsqueeze(dim=1)
+                logits_qu_2 = self._cal_logit_box(a_emb, qu_emb_2, qu_emb_2_offset).unsqueeze(dim=1)
+                logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
+        elif 'beta' in self.which:
+            q_emb_1 = self.projection(self.regularizer(e_emb_1), r_emb_1)
+            q_emb_2 = self.projection(self.regularizer(e_emb_2), r_emb_2)
+            uq_emb = self.projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
+
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            uq_emb_1_alpha, uq_emb_1_beta = torch.chunk(uq_emb, 2, dim=-1)
+            uq_emb_2_alpha, uq_emb_2_beta = torch.chunk(uq_emb, 2, dim=-1)
+
+            qu_emb_1_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                        uq_emb_1_alpha.unsqueeze(dim=1)], dim=1)
+            qu_emb_1_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                       uq_emb_1_beta.unsqueeze(dim=1)], dim=1)
+            qu_emb_2_alpha = torch.cat([q_emb_2_alpha.unsqueeze(dim=1), 
+                                        uq_emb_2_alpha.unsqueeze(dim=1)], dim=1)
+            qu_emb_2_beta = torch.cat([q_emb_2_beta.unsqueeze(dim=1), 
+                                       uq_emb_2_beta.unsqueeze(dim=1)], dim=1)
+            qu_emb_1_alpha, qu_emb_1_beta = self.intersection(qu_emb_1_alpha, qu_emb_1_beta)
+            qu_emb_2_alpha, qu_emb_2_beta = self.intersection(qu_emb_2_alpha, qu_emb_2_beta)
+
+            if 'mmoe' in self.which:
+                q_emb_1_alpha, uq_emb_1_alpha, qu_emb_1_alpha = self._mmoe(q_emb_1_alpha, uq_emb_1_alpha, qu_emb_1_alpha, part=0)
+                q_emb_2_alpha, uq_emb_2_alpha, qu_emb_2_alpha = self._mmoe(q_emb_2_alpha, uq_emb_2_alpha, qu_emb_2_alpha, part=0)
+                q_emb_1_beta, uq_emb_1_beta, qu_emb_1_beta = self._mmoe(q_emb_1_beta, uq_emb_1_beta, qu_emb_1_beta, part=1)
+                q_emb_2_beta, uq_emb_2_beta, qu_emb_2_beta = self._mmoe(q_emb_2_beta, uq_emb_2_beta, qu_emb_2_beta, part=1)
+
+            q_dist_1 = torch.distributions.beta.Beta(self.regularizer(q_emb_1_alpha), self.regularizer(q_emb_1_beta))
+            q_dist_2 = torch.distributions.beta.Beta(self.regularizer(q_emb_2_alpha), self.regularizer(q_emb_2_beta))
+            uq_dist_1 = torch.distributions.beta.Beta(self.regularizer(uq_emb_1_alpha), self.regularizer(uq_emb_1_beta))
+            uq_dist_2 = torch.distributions.beta.Beta(self.regularizer(uq_emb_2_alpha), self.regularizer(uq_emb_2_beta))
+            qu_dist_1 = torch.distributions.beta.Beta(self.regularizer(qu_emb_1_alpha), self.regularizer(qu_emb_1_beta))
+            qu_dist_2 = torch.distributions.beta.Beta(self.regularizer(qu_emb_2_alpha), self.regularizer(qu_emb_2_beta))
+            logits_q_1 = self._cal_logit_beta(a_emb, q_dist_1).unsqueeze(dim=1)
+            logits_uq_1 = self._cal_logit_beta(a_emb, uq_dist_1).unsqueeze(dim=1)
+            logits_qu_1 = self._cal_logit_beta(a_emb, qu_dist_1).unsqueeze(dim=1)
+            logits_q_2 = self._cal_logit_beta(a_emb, q_dist_2).unsqueeze(dim=1)
+            logits_uq_2 = self._cal_logit_beta(a_emb, uq_dist_2).unsqueeze(dim=1)
+            logits_qu_2 = self._cal_logit_beta(a_emb, qu_dist_2).unsqueeze(dim=1)
+            logits_q = torch.cat([logits_q_1, logits_q_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_uq = torch.cat([logits_uq_1, logits_uq_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
+    def forward_up(self, data):
+        e_emb_1 = self.e_embedding(data[:, 0])
+        r_emb_1 = self.r_embedding(data[:, 1])
+        e_emb_2 = self.e_embedding(data[:, 2])
+        r_emb_2 = self.r_embedding(data[:, 3])
+        r_emb = self.r_embedding(data[:, 4])
+        u_emb = self.u_embedding(data[:, 5])
+        ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
+        a_emb = self.e_embedding(data[:, -5])
+
+        if self.which == 'vec':
+            q_emb_1 = self.projection(self.projection(e_emb_1, r_emb_1), r_emb)
+            q_emb_2 = self.projection(self.projection(e_emb_2, r_emb_2), r_emb)
+            uq_emb = self.projection(u_emb, ur_emb)
+            q_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                   uq_emb.unsqueeze(dim=1)], dim=1))
+            q_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
+                                                   uq_emb.unsqueeze(dim=1)], dim=1))
+            logits_1 = self._cal_logit_vec(a_emb, q_emb_1).unsqueeze(dim=1)
+            logits_2 = self._cal_logit_vec(a_emb, q_emb_2).unsqueeze(dim=1)
+            logits = torch.cat([logits_1, logits_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            return torch.cat([logits, logits, logits], dim=1)
+
+        elif 'box' in self.which:
+            r_emb_1_offset = self.offset_embedding(data[:, 1])
+            r_emb_2_offset = self.offset_embedding(data[:, 3])
+            r_emb_offset = self.offset_embedding(data[:, 4])
+            ur_emb_offset = self.offset_embedding.weight[-1].unsqueeze(dim=0)
+            
+            q_emb_1 = self.projection(self.projection(e_emb_1, r_emb_1), r_emb)
+            q_emb_2 = self.projection(self.projection(e_emb_2, r_emb_2), r_emb)
+            uq_emb_1 = self.projection(u_emb, ur_emb)
+            uq_emb_2 = self.projection(u_emb, ur_emb)
+            qu_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                    uq_emb_1.unsqueeze(dim=1)], dim=1))
+            qu_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
+                                                    uq_emb_2.unsqueeze(dim=1)], dim=1))
+
+            q_emb_1_offset = self.projection(self.projection(torch.zeros_like(r_emb_1), r_emb_1_offset), r_emb_offset)
+            q_emb_2_offset = self.projection(self.projection(torch.zeros_like(r_emb_2), r_emb_2_offset), r_emb_offset)
+            uq_emb_1_offset = self.projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            uq_emb_2_offset = self.projection(torch.zeros_like(r_emb_1), ur_emb_offset)
+            qu_emb_1_offset = self.intersection(torch.cat([q_emb_1_offset.unsqueeze(dim=1), 
+                                                           uq_emb_1_offset.unsqueeze(dim=1)], dim=1))
+            qu_emb_2_offset = self.intersection(torch.cat([q_emb_2_offset.unsqueeze(dim=1), 
+                                                           uq_emb_2_offset.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb_1, uq_emb_1, qu_emb_1 = self._mmoe(q_emb_1, uq_emb_1, qu_emb_1, part=0)
+                q_emb_2, uq_emb_2, qu_emb_2 = self._mmoe(q_emb_2, uq_emb_1, qu_emb_2, part=0)
+                q_emb_1_offset, uq_emb_1_offset, qu_emb_1_offset = self._mmoe(q_emb_1_offset, uq_emb_1_offset, qu_emb_1_offset, part=1)
+                q_emb_2_offset, uq_emb_2_offset, qu_emb_2_offset = self._mmoe(q_emb_2_offset, uq_emb_2_offset, qu_emb_2_offset, part=1)
+
+            if 'share' in self.which:
+                logits_qu_1 = self._cal_logit_box(a_emb, qu_emb_1, qu_emb_1_offset).unsqueeze(dim=1)
+                logits_qu_2 = self._cal_logit_box(a_emb, qu_emb_2, qu_emb_2_offset).unsqueeze(dim=1)
+                logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+                logits_uq = logits_qu
+                logits_q = logits_qu
+            else:
+                logits_q_1 = self._cal_logit_box(a_emb, q_emb_1, q_emb_1_offset).unsqueeze(dim=1)
+                logits_q_2 = self._cal_logit_box(a_emb, q_emb_2, q_emb_2_offset).unsqueeze(dim=1)
+                logits_q = torch.cat([logits_q_1, logits_q_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+                logits_uq_1 = self._cal_logit_box(a_emb, uq_emb_1, uq_emb_1_offset).unsqueeze(dim=1)
+                logits_uq_2 = self._cal_logit_box(a_emb, uq_emb_2, uq_emb_2_offset).unsqueeze(dim=1)
+                logits_uq = torch.cat([logits_uq_1, logits_uq_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+                logits_qu_1 = self._cal_logit_box(a_emb, qu_emb_1, qu_emb_1_offset).unsqueeze(dim=1)
+                logits_qu_2 = self._cal_logit_box(a_emb, qu_emb_2, qu_emb_2_offset).unsqueeze(dim=1)
+                logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
+        elif 'beta' in self.which:
+            q_emb_1 = self.projection(self.projection(self.regularizer(e_emb_1), r_emb_1), r_emb)
+            q_emb_2 = self.projection(self.projection(self.regularizer(e_emb_2), r_emb_2), r_emb)
+            uq_emb = self.projection(self.regularizer(u_emb), ur_emb.expand_as(u_emb))
+
+            q_emb_1_alpha, q_emb_1_beta = torch.chunk(q_emb_1, 2, dim=-1)
+            q_emb_2_alpha, q_emb_2_beta = torch.chunk(q_emb_2, 2, dim=-1)
+            uq_emb_1_alpha, uq_emb_1_beta = torch.chunk(uq_emb, 2, dim=-1)
+            uq_emb_2_alpha, uq_emb_2_beta = torch.chunk(uq_emb, 2, dim=-1)
+
+            qu_emb_1_alpha = torch.cat([q_emb_1_alpha.unsqueeze(dim=1), 
+                                        uq_emb_1_alpha.unsqueeze(dim=1)], dim=1)
+            qu_emb_1_beta = torch.cat([q_emb_1_beta.unsqueeze(dim=1), 
+                                       uq_emb_1_beta.unsqueeze(dim=1)], dim=1)
+            qu_emb_2_alpha = torch.cat([q_emb_2_alpha.unsqueeze(dim=1), 
+                                        uq_emb_2_alpha.unsqueeze(dim=1)], dim=1)
+            qu_emb_2_beta = torch.cat([q_emb_2_beta.unsqueeze(dim=1), 
+                                       uq_emb_2_beta.unsqueeze(dim=1)], dim=1)
+            qu_emb_1_alpha, qu_emb_1_beta = self.intersection(qu_emb_1_alpha, qu_emb_1_beta)
+            qu_emb_2_alpha, qu_emb_2_beta = self.intersection(qu_emb_2_alpha, qu_emb_2_beta)
+
+            if 'mmoe' in self.which:
+                q_emb_1_alpha, uq_emb_1_alpha, qu_emb_1_alpha = self._mmoe(q_emb_1_alpha, uq_emb_1_alpha, qu_emb_1_alpha, part=0)
+                q_emb_2_alpha, uq_emb_2_alpha, qu_emb_2_alpha = self._mmoe(q_emb_2_alpha, uq_emb_2_alpha, qu_emb_2_alpha, part=0)
+                q_emb_1_beta, uq_emb_1_beta, qu_emb_1_beta = self._mmoe(q_emb_1_beta, uq_emb_1_beta, qu_emb_1_beta, part=1)
+                q_emb_2_beta, uq_emb_2_beta, qu_emb_2_beta = self._mmoe(q_emb_2_beta, uq_emb_2_beta, qu_emb_2_beta, part=1)
+
+            q_dist_1 = torch.distributions.beta.Beta(self.regularizer(q_emb_1_alpha), self.regularizer(q_emb_1_beta))
+            q_dist_2 = torch.distributions.beta.Beta(self.regularizer(q_emb_2_alpha), self.regularizer(q_emb_2_beta))
+            uq_dist_1 = torch.distributions.beta.Beta(self.regularizer(uq_emb_1_alpha), self.regularizer(uq_emb_1_beta))
+            uq_dist_2 = torch.distributions.beta.Beta(self.regularizer(uq_emb_2_alpha), self.regularizer(uq_emb_2_beta))
+            qu_dist_1 = torch.distributions.beta.Beta(self.regularizer(qu_emb_1_alpha), self.regularizer(qu_emb_1_beta))
+            qu_dist_2 = torch.distributions.beta.Beta(self.regularizer(qu_emb_2_alpha), self.regularizer(qu_emb_2_beta))
+            logits_q_1 = self._cal_logit_beta(a_emb, q_dist_1).unsqueeze(dim=1)
+            logits_uq_1 = self._cal_logit_beta(a_emb, uq_dist_1).unsqueeze(dim=1)
+            logits_qu_1 = self._cal_logit_beta(a_emb, qu_dist_1).unsqueeze(dim=1)
+            logits_q_2 = self._cal_logit_beta(a_emb, q_dist_2).unsqueeze(dim=1)
+            logits_uq_2 = self._cal_logit_beta(a_emb, uq_dist_2).unsqueeze(dim=1)
+            logits_qu_2 = self._cal_logit_beta(a_emb, qu_dist_2).unsqueeze(dim=1)
+            logits_q = torch.cat([logits_q_1, logits_q_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_uq = torch.cat([logits_uq_1, logits_uq_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
     def get_loss(self, data):
         data_1p = torch.index_select(data, 0, (data[:, -1] == 1).nonzero().squeeze(-1))
         data_2p = torch.index_select(data, 0, (data[:, -1] == 2).nonzero().squeeze(-1))
@@ -904,7 +1361,7 @@ class LogicRecModel(torch.nn.Module):
         preds = torch.cat(preds, dim=0)
         labels = torch.cat(labels, dim=0).float()
 
-        if self.which.split('-')[-1] == 'only':
+        if self.which.split('-')[-1] == 'only' or self.which == 'vec':
             return self.criterion(preds[:, -1], labels[:, -1])
         elif self.which.split('-')[-1] == 'all':
             return self.criterion(preds, labels)
@@ -970,6 +1427,18 @@ def evaluate(dataloader, model, device, train_dict, flag):
             elif flag == '3i':
                 logits = model.forward_3i(possible)[:, -1]
                 flt = train_dict[pos[0][6].item()]
+            elif flag == 'pi':
+                logits = model.forward_pi(possible)[:, -1]
+                flt = train_dict[pos[0][5].item()]
+            elif flag == 'ip':
+                logits = model.forward_ip(possible)[:, -1]
+                flt = train_dict[pos[0][5].item()]
+            elif flag == '2u':
+                logits = model.forward_2u(possible)[:, -1]
+                flt = train_dict[pos[0][4].item()]
+            elif flag == 'up':
+                logits = model.forward_up(possible)[:, -1]
+                flt = train_dict[pos[0][5].item()]
             else:
                 raise ValueError
             rank = get_rank(pos, logits, flt)
@@ -1054,6 +1523,10 @@ if __name__ == '__main__':
     test_3p = load_obj(input_path + '/input/3p_test.pkl')
     test_2i = load_obj(input_path + '/input/2i_test.pkl')
     test_3i = load_obj(input_path + '/input/3i_test.pkl')
+    test_pi = load_obj(input_path + '/input/pi_test.pkl')
+    test_ip = load_obj(input_path + '/input/ip_test.pkl')
+    test_2u = load_obj(input_path + '/input/2u_test.pkl')
+    test_up = load_obj(input_path + '/input/up_test.pkl')
     
     if not cfg.cached:
         train_1p = load_obj(input_path + '/input/1p_train.pkl')
@@ -1082,7 +1555,15 @@ if __name__ == '__main__':
     lqa_dataset_2i_test = LQADatasetTest(N_item, test_2i, cfg, stage='test', query_type='2i')
     lqa_dataset_3i_valid = LQADatasetTest(N_item, test_3i, cfg, stage='valid', query_type='3i')
     lqa_dataset_3i_test = LQADatasetTest(N_item, test_3i, cfg, stage='test', query_type='3i')
-    
+    lqa_dataset_pi_valid = LQADatasetTest(N_item, test_pi, cfg, stage='valid', query_type='pi')
+    lqa_dataset_pi_test = LQADatasetTest(N_item, test_pi, cfg, stage='test', query_type='pi')
+    lqa_dataset_ip_valid = LQADatasetTest(N_item, test_ip, cfg, stage='valid', query_type='ip')
+    lqa_dataset_ip_test = LQADatasetTest(N_item, test_ip, cfg, stage='test', query_type='ip')
+    lqa_dataset_2u_valid = LQADatasetTest(N_item, test_2u, cfg, stage='valid', query_type='2u')
+    lqa_dataset_2u_test = LQADatasetTest(N_item, test_2u, cfg, stage='test', query_type='2u')
+    lqa_dataset_up_valid = LQADatasetTest(N_item, test_up, cfg, stage='valid', query_type='up')
+    lqa_dataset_up_test = LQADatasetTest(N_item, test_up, cfg, stage='test', query_type='up')
+
     lqa_dataloader_train = torch.utils.data.DataLoader(dataset=lqa_dataset_train,
                                                        batch_size=cfg.bs,
                                                        num_workers=cfg.num_workers,
@@ -1139,6 +1620,46 @@ if __name__ == '__main__':
                                                 num_workers=cfg.num_workers,
                                                 shuffle=False,
                                                 drop_last=False)
+    lqa_dataloader_pi_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_pi_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
+    lqa_dataloader_pi_test = torch.utils.data.DataLoader(dataset=lqa_dataset_pi_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
+    lqa_dataloader_ip_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_ip_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
+    lqa_dataloader_ip_test = torch.utils.data.DataLoader(dataset=lqa_dataset_ip_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
+    lqa_dataloader_2u_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_2u_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
+    lqa_dataloader_2u_test = torch.utils.data.DataLoader(dataset=lqa_dataset_2u_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
+    lqa_dataloader_up_valid = torch.utils.data.DataLoader(dataset=lqa_dataset_up_valid,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
+    lqa_dataloader_up_test = torch.utils.data.DataLoader(dataset=lqa_dataset_up_test,
+                                                batch_size=1,
+                                                num_workers=cfg.num_workers,
+                                                shuffle=False,
+                                                drop_last=False)
     
     model = LogicRecModel(N_user, N_ent, N_rel, cfg)
     model = model.to(device)
@@ -1154,19 +1675,35 @@ if __name__ == '__main__':
         lqa_dataloader_2i_test = tqdm.tqdm(lqa_dataloader_2i_test)
         lqa_dataloader_3i_valid = tqdm.tqdm(lqa_dataloader_3i_valid)
         lqa_dataloader_3i_test = tqdm.tqdm(lqa_dataloader_3i_test)
+        lqa_dataloader_pi_valid = tqdm.tqdm(lqa_dataloader_pi_valid)
+        lqa_dataloader_pi_test = tqdm.tqdm(lqa_dataloader_pi_test)
+        lqa_dataloader_ip_valid = tqdm.tqdm(lqa_dataloader_ip_valid)
+        lqa_dataloader_ip_test = tqdm.tqdm(lqa_dataloader_ip_test)
+        lqa_dataloader_2u_valid = tqdm.tqdm(lqa_dataloader_2u_valid)
+        lqa_dataloader_2u_test = tqdm.tqdm(lqa_dataloader_2u_test)
+        lqa_dataloader_up_valid = tqdm.tqdm(lqa_dataloader_up_valid)
+        lqa_dataloader_up_test = tqdm.tqdm(lqa_dataloader_up_test)
     valid_dataloaders = [lqa_dataloader_1p_valid, 
                         lqa_dataloader_2p_valid,
                         lqa_dataloader_3p_valid,
                         lqa_dataloader_2i_valid,
-                        lqa_dataloader_3i_valid
+                        lqa_dataloader_3i_valid,
+                        lqa_dataloader_pi_valid,
+                        lqa_dataloader_ip_valid,
+                        lqa_dataloader_2u_valid,
+                        lqa_dataloader_up_valid
                         ]
     test_dataloaders = [lqa_dataloader_1p_test, 
                         lqa_dataloader_2p_test,
                         lqa_dataloader_3p_test,
                         lqa_dataloader_2i_test,
-                        lqa_dataloader_3i_test
+                        lqa_dataloader_3i_test,
+                        lqa_dataloader_pi_test,
+                        lqa_dataloader_ip_test,
+                        lqa_dataloader_2u_test,
+                        lqa_dataloader_up_test
                         ]
-    query_types = ['1p', '2p', '3p', '2i', '3i']
+    query_types = ['1p', '2p', '3p', '2i', '3i', 'pi', 'ip', '2u', 'up']
     lqa_dataloader_train = iterator(lqa_dataloader_train)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.wd)

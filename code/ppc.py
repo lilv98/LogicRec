@@ -485,50 +485,50 @@ if __name__ == '__main__':
     kg_t2hr_dict_test = get_mapper_t2hr(kg_test)
     kg_hr2t_dict_test = get_mapper_hr2t(kg_test)
     
-    # # 1p Train Format: (e_1, r_1, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
-    # # 1p Test Format: [e_1, r_1, u, joint answer]
-    # print('Constructing 1p...')
-    # data_1p_train = construct_1p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict)
-    # data_1p_test = construct_1p_test(kg_t2hr_dict_test, rec_test_dict, k=cfg.N_test)
-    # print(f'Stats 1p: #Train: {len(data_1p_train)}, #Test: {len(data_1p_test)}')
-    # save_obj(data_1p_train, input_path + '1p_train.pkl')
-    # save_obj(data_1p_test, input_path + '1p_test.pkl')
+    # 1p Train Format: (e_1, r_1, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
+    # 1p Test Format: [e_1, r_1, u, joint answer]
+    print('Constructing 1p...')
+    data_1p_train = construct_1p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict)
+    data_1p_test = construct_1p_test(kg_t2hr_dict_test, rec_test_dict, k=cfg.N_test)
+    print(f'Stats 1p: #Train: {len(data_1p_train)}, #Test: {len(data_1p_test)}')
+    save_obj(data_1p_train, input_path + '1p_train.pkl')
+    save_obj(data_1p_test, input_path + '1p_test.pkl')
     
-    # # 2p Train Format: (e_1, r_1, r_2, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
-    # # 2p Test Format: [e_1, r_1, r_2, u, joint answer]
-    # print('Constructing 2p...')
-    # data_2p_train = construct_2p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    # data_2p_test = construct_2p_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
-    # print(f'Stats 2p: #Train: {len(data_2p_train)}, #Test: {len(data_2p_test)}')
-    # save_obj(data_2p_train, input_path + '2p_train.pkl')
-    # save_obj(data_2p_test, input_path + '2p_test.pkl')
+    # 2p Train Format: (e_1, r_1, r_2, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
+    # 2p Test Format: [e_1, r_1, r_2, u, joint answer]
+    print('Constructing 2p...')
+    data_2p_train = construct_2p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
+    data_2p_test = construct_2p_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
+    print(f'Stats 2p: #Train: {len(data_2p_train)}, #Test: {len(data_2p_test)}')
+    save_obj(data_2p_train, input_path + '2p_train.pkl')
+    save_obj(data_2p_test, input_path + '2p_test.pkl')
     
-    # # 3p Train Format: (e_1, r_1, r_2, r_3, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
-    # # 3p Test Format: [e_1, r_1, r_2, r_3, u, joint answer]
-    # print('Constructing 3p...')
-    # data_3p_train = construct_3p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    # data_3p_test = construct_3p_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
-    # print(f'Stats 3p: #Train: {len(data_3p_train)}, #Test: {len(data_3p_test)}')
-    # save_obj(data_3p_train, input_path + '3p_train.pkl')
-    # save_obj(data_3p_test, input_path + '3p_test.pkl')
+    # 3p Train Format: (e_1, r_1, r_2, r_3, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
+    # 3p Test Format: [e_1, r_1, r_2, r_3, u, joint answer]
+    print('Constructing 3p...')
+    data_3p_train = construct_3p_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
+    data_3p_test = construct_3p_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
+    print(f'Stats 3p: #Train: {len(data_3p_train)}, #Test: {len(data_3p_test)}')
+    save_obj(data_3p_train, input_path + '3p_train.pkl')
+    save_obj(data_3p_test, input_path + '3p_test.pkl')
     
-    # # 2i Train Format: (e_1, r_1, e_2, r_2, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
-    # # 2i Test Format: [e_1, r_1, e_2, r_2, u, joint answer]
-    # print('Constructing 2i...')
-    # data_2i_train = construct_2i_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    # data_2i_test = construct_2i_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
-    # print(f'Stats 2i: #Train: {len(data_2i_train)}, #Test: {len(data_2i_test)}')
-    # save_obj(data_2i_train, input_path + '2i_train.pkl')
-    # save_obj(data_2i_test, input_path + '2i_test.pkl')
+    # 2i Train Format: (e_1, r_1, e_2, r_2, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
+    # 2i Test Format: [e_1, r_1, e_2, r_2, u, joint answer]
+    print('Constructing 2i...')
+    data_2i_train = construct_2i_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
+    data_2i_test = construct_2i_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
+    print(f'Stats 2i: #Train: {len(data_2i_train)}, #Test: {len(data_2i_test)}')
+    save_obj(data_2i_train, input_path + '2i_train.pkl')
+    save_obj(data_2i_test, input_path + '2i_test.pkl')
     
-    # # 3i Train Format: (e_1, r_1, e_2, r_2, e_3, r_3, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
-    # # 3i Test Format: [e_1, r_1, e_2, r_2, e_3, r_3, u, joint answer]
-    # print('Constructing 3i...')
-    # data_3i_train = construct_3i_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
-    # data_3i_test = construct_3i_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
-    # print(f'Stats 3i: #Train: {len(data_3i_train)}, #Test: {len(data_3i_test)}')
-    # save_obj(data_3i_train, input_path + '3i_train.pkl')
-    # save_obj(data_3i_test, input_path + '3i_test.pkl')
+    # 3i Train Format: (e_1, r_1, e_2, r_2, e_3, r_3, u): {'rec': {rec answers}, 'lqa': {lqa answers}, 'both': {joint answers}}
+    # 3i Test Format: [e_1, r_1, e_2, r_2, e_3, r_3, u, joint answer]
+    print('Constructing 3i...')
+    data_3i_train = construct_3i_train(kg_t2hr_dict_train, kg_hr2t_dict_train, rec_train_dict, k=cfg.N_train)
+    data_3i_test = construct_3i_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
+    print(f'Stats 3i: #Train: {len(data_3i_train)}, #Test: {len(data_3i_test)}')
+    save_obj(data_3i_train, input_path + '3i_train.pkl')
+    save_obj(data_3i_test, input_path + '3i_test.pkl')
 
     # pi Test Format: [e_1, r_11, r_12, e_2, r_2, u, joint answer]
     data_pi_test = construct_pi_test(kg_t2hr_dict_test, kg_t2hr_dict_train, rec_test_dict, k=cfg.N_test)
