@@ -34,7 +34,8 @@ def read_data(path):
             counter += 1
             if counter > 1:
                 all_i.append(line)
-    N_item = int(all_i[-1].strip('\n').split(' ')[1]) + 1
+    # N_item = int(all_i[-1].strip('\n').split(' ')[1]) + 1
+    N_item = len(all_i)
 
     all_e = []
     counter = 0
@@ -44,28 +45,25 @@ def read_data(path):
             if counter > 1:
                 all_e.append(line)
     N_ent = len(all_e)
-    assert all_e[N_item - 1].strip('\n').split(' ')[0] == all_i[-1].strip('\n').split(' ')[2]
+    # assert all_e[N_item - 1].strip('\n').split(' ')[0] == all_i[-1].strip('\n').split(' ')[2]
     
     N_rel = -1
     with open(path + '/relation_list.txt') as f:
         for line in f:
             N_rel += 1
-
-    N_user = -1
-    with open(path + '/user_list.txt') as f:
-        for line in f:
-            N_user += 1
-
-    print(f'N_item: {N_item}')
-    print(f'N_ent: {N_ent}')
-    print(f'N_rel: {N_rel}')
-    print(f'N_user: {N_user}')
+    N_rel = N_rel * 2
 
     filters = {}
     with open(path + '/train.txt') as f:
         for line in f:
             line = line.strip('\n').split(' ')
             filters[int(line[0])] = set([int(x) for x in line[1:]])
+
+    N_user = len(filters.keys())
+    print(f'N_item: {N_item}')
+    print(f'N_ent: {N_ent}')
+    print(f'N_rel: {N_rel}')
+    print(f'N_user: {N_user}')
 
     return N_rel, N_item, N_ent, N_user, filters
 
@@ -76,7 +74,7 @@ def combine_data(data_1p, data_2p, data_3p, data_2i, data_3i, N_item, k):
     # 1p: e1, r1, u, ph, ph, ph, ph, i, lqa, rec, both, 1
     for query in tqdm.tqdm(data_1p):
         # counter += 1
-        # if counter < 10001:
+        # if counter < 100001:
         query_as_list = list(query)
         items = data_1p[query]['both']
         for item in items:
@@ -1444,11 +1442,19 @@ def evaluate(dataloader, model, device, train_dict, flag):
             rank = get_rank(pos, logits, flt)
             r.append(rank)
             rr.append(1/rank)
-            if rank <= 10:
+            # if rank <= 10:
+            #     h10.append(1)
+            # else:
+            #     h10.append(0)
+            # if rank <= 20:
+            #     h20.append(1)
+            # else:
+            #     h20.append(0)
+            if rank == 1:
                 h10.append(1)
             else:
                 h10.append(0)
-            if rank <= 20:
+            if rank <= 3:
                 h20.append(1)
             else:
                 h20.append(0)
@@ -1472,7 +1478,7 @@ def evaluate(dataloader, model, device, train_dict, flag):
     ndcg20 = round(sum(results[6])/len(results[6]), 3)
     ndcg50 = round(sum(results[7])/len(results[7]), 3)
     
-    print(f'MR: {r}, MRR: {rr}, Hit@10: {h10}, Hit@20: {h20}, Hit@50: {h50}, nDCG@10: {ndcg10}, nDCG@20: {ndcg20}, nDCG@50: {ndcg50}', flush=True)
+    print(f'#{flag}#  MR: {r}, MRR: {rr}, Hit@10: {h10}, Hit@20: {h20}, Hit@50: {h50}, nDCG@10: {ndcg10}, nDCG@20: {ndcg20}, nDCG@50: {ndcg50}', flush=True)
     
     return r, rr, h10, h20, h50, ndcg10, ndcg20, ndcg50
 
@@ -1730,13 +1736,15 @@ if __name__ == '__main__':
             print(f'Loss: {round(sum(avg_loss) / len(avg_loss), 4)}', flush=True)
             avg_loss = []
             print('Validating...', flush=True)
-            mmrr = []
+            results = []
             for i in range(len(query_types)):
                 flag = query_types[i]
-                print(f'{flag}:')
                 r, rr, h10, h20, h50, ndcg10, ndcg20, ndcg50 = evaluate(valid_dataloaders[i], model, device, filters, flag)
-                mmrr.append(rr)
-            value = sum(mmrr) / len(mmrr)
+                results.append([r, rr, h10, h20, h50, ndcg10, ndcg20, ndcg50])
+                
+            mean_results = torch.tensor(results).mean(dim=0).numpy().tolist()
+            print(f'Mean: MR: {int(mean_results[0])}, MRR: {round(mean_results[1], 3)}, Hit@10: {round(mean_results[2], 3)}, Hit@20: {round(mean_results[3], 3)}, Hit@50: {round(mean_results[4], 3)}, nDCG@10: {round(mean_results[5], 3)}, nDCG@20: {round(mean_results[6], 3)}, nDCG@50: {round(mean_results[7], 3)}', flush=True)
+            value = round(mean_results[1], 3)
             if value >= max_value:
                 max_value = value
                 tolerance = cfg.tolerance
@@ -1749,8 +1757,11 @@ if __name__ == '__main__':
             print('Testing...', flush=True)
             print(f'Best performance at epoch {step - cfg.tolerance * cfg.valid_interval + 1}', flush=True)
             model.load_state_dict(torch.load(save_root + str(step - cfg.tolerance * cfg.valid_interval + 1)))
+            results = []
             for i in range(len(query_types)):
                 flag = query_types[i]
-                print(f'{flag}:', flush=True)
                 r, rr, h10, h20, h50, ndcg10, ndcg20, ndcg50 = evaluate(test_dataloaders[i], model, device, filters, flag)
+                results.append([r, rr, h10, h20, h50, ndcg10, ndcg20, ndcg50])
+            mean_results = torch.tensor(results).mean(dim=0).numpy().tolist()
+            print(f'Mean: MR: {int(mean_results[0])}, MRR: {round(mean_results[1], 3)}, Hit@10: {round(mean_results[2], 3)}, Hit@20: {round(mean_results[3], 3)}, Hit@50: {round(mean_results[4], 3)}, nDCG@10: {round(mean_results[5], 3)}, nDCG@20: {round(mean_results[6], 3)}, nDCG@50: {round(mean_results[7], 3)}', flush=True)
             break

@@ -3,6 +3,7 @@
 /code/*.out
 /data
 /tmp
+/archive
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
