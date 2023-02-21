@@ -395,7 +395,7 @@ class LogicRecModel(torch.nn.Module):
         self.num_ng = cfg.num_ng
         self.gamma = cfg.gamma
 
-        if self.which == 'vec':
+        if 'vec' in self.which:
             self.emb_dim = cfg.emb_dim
             self.intersection = IntersectionNet(self.emb_dim)
         
@@ -489,13 +489,20 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
-            q_emb_1 = self.projection(e_emb, r_emb)
-            q_emb_2 = self.projection(u_emb, ur_emb)
-            q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                 q_emb_2.unsqueeze(dim=1)], dim=1))
-            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+        if 'vec' in self.which:
+            q_emb = self.projection(e_emb, r_emb)
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+
+            logits_q = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_vec(a_emb, uq_emb).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_vec(a_emb, qu_emb).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_offset = self.offset_embedding(data[:, 1])
@@ -559,14 +566,21 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
-            q_emb_1 = self.projection(self.projection(e_emb, r_emb_1), r_emb_2)
-            q_emb_2 = self.projection(u_emb, ur_emb)
-            q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                 q_emb_2.unsqueeze(dim=1)], dim=1))
-            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
-        
+        if 'vec' in self.which:
+            q_emb = self.projection(self.projection(e_emb, r_emb_1), r_emb_2)
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+
+            logits_q = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_vec(a_emb, uq_emb).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_vec(a_emb, qu_emb).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
+
         elif 'box' in self.which:
             r_emb_1_offset = self.offset_embedding(data[:, 1])
             r_emb_2_offset = self.offset_embedding(data[:, 2])
@@ -631,13 +645,20 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
-            q_emb_1 = self.projection(self.projection(self.projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
-            q_emb_2 = self.projection(u_emb, ur_emb)
-            q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                 q_emb_2.unsqueeze(dim=1)], dim=1))
-            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+        if 'vec' in self.which:
+            q_emb = self.projection(self.projection(self.projection(e_emb, r_emb_1), r_emb_2), r_emb_3)
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+
+            logits_q = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_vec(a_emb, uq_emb).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_vec(a_emb, qu_emb).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_1_offset = self.offset_embedding(data[:, 1])
@@ -704,15 +725,23 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
+        if 'vec' in self.which:
             q_emb_1 = self.projection(e_emb_1, r_emb_1)
             q_emb_2 = self.projection(e_emb_2, r_emb_2)
-            q_emb_3 = self.projection(u_emb, ur_emb)
             q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                 q_emb_2.unsqueeze(dim=1), 
-                                                 q_emb_3.unsqueeze(dim=1)], dim=1))
-            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+                                                 q_emb_2.unsqueeze(dim=1)], dim=1))
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                  q_emb_2.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+
+            logits_q = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_vec(a_emb, uq_emb).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_vec(a_emb, qu_emb).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_1_offset = self.offset_embedding(data[:, 1])
@@ -799,17 +828,26 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
+        if 'vec' in self.which:
             q_emb_1 = self.projection(e_emb_1, r_emb_1)
             q_emb_2 = self.projection(e_emb_2, r_emb_2)
             q_emb_3 = self.projection(e_emb_3, r_emb_3)
-            q_emb_4 = self.projection(u_emb, ur_emb)
             q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                                  q_emb_2.unsqueeze(dim=1), 
-                                                 q_emb_3.unsqueeze(dim=1),
-                                                 q_emb_4.unsqueeze(dim=1)], dim=1))
-            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+                                                 q_emb_3.unsqueeze(dim=1)], dim=1))
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                  q_emb_2.unsqueeze(dim=1), 
+                                                  q_emb_3.unsqueeze(dim=1),
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+
+            logits_q = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_vec(a_emb, uq_emb).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_vec(a_emb, qu_emb).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_1_offset = self.offset_embedding(data[:, 1])
@@ -907,15 +945,24 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
+        if 'vec' in self.which:
             q_emb_1 = self.projection(self.projection(e_emb_1, r_emb_11), r_emb_12)
             q_emb_2 = self.projection(e_emb_2, r_emb_2)
-            q_emb_3 = self.projection(u_emb, ur_emb)
             q_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                 q_emb_2.unsqueeze(dim=1), 
-                                                 q_emb_3.unsqueeze(dim=1)], dim=1))
-            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+                                                 q_emb_2.unsqueeze(dim=1)], dim=1))
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                  q_emb_2.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+
+            logits_q = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_vec(a_emb, uq_emb).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_vec(a_emb, qu_emb).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_11_offset = self.offset_embedding(data[:, 1])
@@ -1001,17 +1048,24 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
+        if 'vec' in self.which:
             q_emb_1 = self.projection(e_emb_1, r_emb_1)
             q_emb_2 = self.projection(e_emb_2, r_emb_2)
             q_emb_mid = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
                                                      q_emb_2.unsqueeze(dim=1)], dim=1))
-            q_emb_mid = self.projection(q_emb_mid, r_emb)
-            q_emb_3 = self.projection(u_emb, ur_emb)
-            q_emb = self.intersection(torch.cat([q_emb_mid.unsqueeze(dim=1), 
-                                                 q_emb_3.unsqueeze(dim=1)], dim=1))
-            logits = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+            q_emb = self.projection(q_emb_mid, r_emb)
+            uq_emb = self.projection(u_emb, ur_emb)
+            qu_emb = self.intersection(torch.cat([q_emb.unsqueeze(dim=1), 
+                                                  uq_emb.unsqueeze(dim=1)], dim=1))
+            
+            if 'mmoe' in self.which:
+                q_emb, uq_emb, qu_emb = self._mmoe(q_emb, uq_emb, qu_emb, part=0)
+
+            logits_q = self._cal_logit_vec(a_emb, q_emb).unsqueeze(dim=1)
+            logits_uq = self._cal_logit_vec(a_emb, uq_emb).unsqueeze(dim=1)
+            logits_qu = self._cal_logit_vec(a_emb, qu_emb).unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_1_offset = self.offset_embedding(data[:, 1])
@@ -1098,18 +1152,30 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
+        if 'vec' in self.which:
             q_emb_1 = self.projection(e_emb_1, r_emb_1)
             q_emb_2 = self.projection(e_emb_2, r_emb_2)
             uq_emb = self.projection(u_emb, ur_emb)
-            q_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                   uq_emb.unsqueeze(dim=1)], dim=1))
-            q_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
-                                                   uq_emb.unsqueeze(dim=1)], dim=1))
-            logits_1 = self._cal_logit_vec(a_emb, q_emb_1).unsqueeze(dim=1)
-            logits_2 = self._cal_logit_vec(a_emb, q_emb_2).unsqueeze(dim=1)
-            logits = torch.cat([logits_1, logits_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+            qu_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                    uq_emb.unsqueeze(dim=1)], dim=1))
+            qu_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
+                                                    uq_emb.unsqueeze(dim=1)], dim=1))
+
+            if 'mmoe' in self.which:
+                q_emb_1, uq_emb_1, qu_emb_1 = self._mmoe(q_emb_1, uq_emb, qu_emb_1, part=0)
+                q_emb_2, uq_emb_2, qu_emb_2 = self._mmoe(q_emb_2, uq_emb, qu_emb_2, part=0)
+
+            logits_q_1 = self._cal_logit_vec(a_emb, q_emb_1).unsqueeze(dim=1)
+            logits_q_2 = self._cal_logit_vec(a_emb, q_emb_2).unsqueeze(dim=1)
+            logits_q = torch.cat([logits_q_1, logits_q_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_uq_1 = self._cal_logit_vec(a_emb, uq_emb_1).unsqueeze(dim=1)
+            logits_uq_2 = self._cal_logit_vec(a_emb, uq_emb_2).unsqueeze(dim=1)
+            logits_uq = torch.cat([logits_uq_1, logits_uq_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_qu_1 = self._cal_logit_vec(a_emb, qu_emb_1).unsqueeze(dim=1)
+            logits_qu_2 = self._cal_logit_vec(a_emb, qu_emb_2).unsqueeze(dim=1)
+            logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_1_offset = self.offset_embedding(data[:, 1])
@@ -1214,18 +1280,30 @@ class LogicRecModel(torch.nn.Module):
         ur_emb = self.r_embedding.weight[-1].unsqueeze(dim=0)
         a_emb = self.e_embedding(data[:, -5])
 
-        if self.which == 'vec':
+        if 'vec' in self.which:
             q_emb_1 = self.projection(self.projection(e_emb_1, r_emb_1), r_emb)
             q_emb_2 = self.projection(self.projection(e_emb_2, r_emb_2), r_emb)
             uq_emb = self.projection(u_emb, ur_emb)
-            q_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
-                                                   uq_emb.unsqueeze(dim=1)], dim=1))
-            q_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
-                                                   uq_emb.unsqueeze(dim=1)], dim=1))
-            logits_1 = self._cal_logit_vec(a_emb, q_emb_1).unsqueeze(dim=1)
-            logits_2 = self._cal_logit_vec(a_emb, q_emb_2).unsqueeze(dim=1)
-            logits = torch.cat([logits_1, logits_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
-            return torch.cat([logits, logits, logits], dim=1)
+            qu_emb_1 = self.intersection(torch.cat([q_emb_1.unsqueeze(dim=1), 
+                                                    uq_emb.unsqueeze(dim=1)], dim=1))
+            qu_emb_2 = self.intersection(torch.cat([q_emb_2.unsqueeze(dim=1), 
+                                                    uq_emb.unsqueeze(dim=1)], dim=1))
+            
+            if 'mmoe' in self.which:
+                q_emb_1, uq_emb_1, qu_emb_1 = self._mmoe(q_emb_1, uq_emb, qu_emb_1, part=0)
+                q_emb_2, uq_emb_2, qu_emb_2 = self._mmoe(q_emb_2, uq_emb, qu_emb_2, part=0)
+
+            logits_q_1 = self._cal_logit_vec(a_emb, q_emb_1).unsqueeze(dim=1)
+            logits_q_2 = self._cal_logit_vec(a_emb, q_emb_2).unsqueeze(dim=1)
+            logits_q = torch.cat([logits_q_1, logits_q_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_uq_1 = self._cal_logit_vec(a_emb, uq_emb_1).unsqueeze(dim=1)
+            logits_uq_2 = self._cal_logit_vec(a_emb, uq_emb_2).unsqueeze(dim=1)
+            logits_uq = torch.cat([logits_uq_1, logits_uq_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+            logits_qu_1 = self._cal_logit_vec(a_emb, qu_emb_1).unsqueeze(dim=1)
+            logits_qu_2 = self._cal_logit_vec(a_emb, qu_emb_2).unsqueeze(dim=1)
+            logits_qu = torch.cat([logits_qu_1, logits_qu_2], dim=-1).max(dim=-1)[0].unsqueeze(dim=1)
+
+            return torch.cat([logits_q, logits_uq, logits_qu], dim=1)
 
         elif 'box' in self.which:
             r_emb_1_offset = self.offset_embedding(data[:, 1])
@@ -1359,7 +1437,7 @@ class LogicRecModel(torch.nn.Module):
         preds = torch.cat(preds, dim=0)
         labels = torch.cat(labels, dim=0).float()
 
-        if self.which.split('-')[-1] == 'only' or self.which == 'vec':
+        if self.which.split('-')[-1] == 'only':
             return self.criterion(preds[:, -1], labels[:, -1])
         elif self.which.split('-')[-1] == 'all':
             return self.criterion(preds, labels)
@@ -1442,22 +1520,22 @@ def evaluate(dataloader, model, device, train_dict, flag):
             rank = get_rank(pos, logits, flt)
             r.append(rank)
             rr.append(1/rank)
-            # if rank <= 10:
-            #     h10.append(1)
-            # else:
-            #     h10.append(0)
-            # if rank <= 20:
-            #     h20.append(1)
-            # else:
-            #     h20.append(0)
-            if rank == 1:
+            if rank <= 10:
                 h10.append(1)
             else:
                 h10.append(0)
-            if rank <= 3:
+            if rank <= 20:
                 h20.append(1)
             else:
                 h20.append(0)
+            # if rank == 1:
+            #     h10.append(1)
+            # else:
+            #     h10.append(0)
+            # if rank <= 3:
+            #     h20.append(1)
+            # else:
+            #     h20.append(0)
             if rank <= 50:
                 h50.append(1)
             else:

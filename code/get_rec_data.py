@@ -21,7 +21,7 @@ def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', default='../data/', type=str)
     parser.add_argument('--cached', default=0, type=int)
-    parser.add_argument('--dataset', default='amazon-book', type=str)
+    parser.add_argument('--dataset', default='yelp2018', type=str)
     parser.add_argument('--seed', default=42, type=int)
     parser.add_argument('--k', default=1, type=int)
     parser.add_argument('--num_ng', default=8, type=int)
