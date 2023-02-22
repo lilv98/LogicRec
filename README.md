@@ -10,7 +10,7 @@ This is the implementation of LogicRec: Recommendation with Users' Logical Requi
 * tqdm == 4.61.0
 
 ## Datasets
-Download and unzip the preprocessed [amazon-book](linkone) and [yelp2018](link2) datasets to **./data/**. If you wanna run query generation, please run the following commands after you have downloaded the datasets:
+Download and unzip the preprocessed [amazon-book](https://drive.google.com/file/d/10sLVpfbBEBLp-MFc7_Bfz75puYEIaMSM/view?usp=share_link) and [yelp2018](https://drive.google.com/file/d/1NYYzSOmuLZ37PIYc5OIoLAcVDqrZ0rd5/view?usp=share_link) datasets to **./data/**. If you wanna run query generation, please run the following commands after you have downloaded the datasets:
 
 ```powershell
 python ppc_amazon_book.py 
