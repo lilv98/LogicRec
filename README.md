@@ -1,6 +1,6 @@
 # LogicRec
 
-This is a demonstrative implementation of our SIGIR 2023 [paper](https://arxiv.org/abs/2304.11722) LogicRec: Recommendation with Users' Logical Requirements
+This is a demonstrative implementation of our SIGIR 2023 paper [Proceeding](https://dl.acm.org/doi/abs/10.1145/3539618.3592012) [ArXiv](https://arxiv.org/abs/2304.11722) LogicRec: Recommendation with Users' Logical Requirements
 
 ## Abstract
 
@@ -62,6 +62,25 @@ Please set the argument **cached** to 1 after first run for each dataset.
 ## Reference
 
 ```
+@inproceedings{10.1145/3539618.3592012,
+author = {Tang, Zhenwei and Floto, Griffin and Toroghi, Armin and Pei, Shichao and Zhang, Xiangliang and Sanner, Scott},
+title = {LogicRec: Recommendation with Users' Logical Requirements},
+year = {2023},
+isbn = {9781450394086},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3539618.3592012},
+doi = {10.1145/3539618.3592012},
+abstract = {Users may demand recommendations with highly personalized requirements involving logical operations, e.g., the intersection of two requirements, where such requirements naturally form structured logical queries on knowledge graphs (KGs). To date, existing recommender systems lack the capability to tackle users' complex logical requirements. In this work, we formulate the problem of recommendation with users' logical requirements (LogicRec) and construct benchmark datasets for LogicRec. Furthermore, we propose an initial solution for LogicRec based on logical requirement retrieval and user preference retrieval, where we face two challenges. First, KGs are incomplete in nature. Therefore, there are always missing true facts, which entails that the answers to logical requirements can not be completely found in KGs. In this case, item selection based on the answers to logical queries is not applicable. We thus resort to logical query embedding (LQE) to jointly infer missing facts and retrieve items based on logical requirements. Second, answer sets are under-exploited. Existing LQE methods can only deal with query-answer pairs, where queries in our case are the intersected user preferences and logical requirements. However, the logical requirements and user preferences have different answer sets, offering us richer knowledge about the requirements and preferences by providing requirement-item and preference-item pairs. Thus, we design a multi-task knowledge-sharing mechanism to exploit these answer sets collectively. Extensive experimental results demonstrate the significance of the LogicRec task and the effectiveness of our proposed method.},
+booktitle = {Proceedings of the 46th International ACM SIGIR Conference on Research and Development in Information Retrieval},
+pages = {2129–2133},
+numpages = {5},
+keywords = {recommender system, logical query answering, knowledge graph},
+location = {Taipei, Taiwan},
+series = {SIGIR '23}
+}
+```
+```
 @article{tang2023logicrec,
   title={LogicRec: Recommendation with Users' Logical Requirements},
   author={Tang, Zhenwei and Floto, Griffin and Toroghi, Armin and Pei, Shichao and Zhang, Xiangliang and Sanner, Scott},
@@ -69,3 +88,4 @@ Please set the argument **cached** to 1 after first run for each dataset.
   year={2023}
 }
 ```
+
