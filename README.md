@@ -1,6 +1,6 @@
 # LogicRec
 
-This is a demonstrative implementation of our SIGIR 2023 paper [Proceeding](https://dl.acm.org/doi/abs/10.1145/3539618.3592012) [ArXiv](https://arxiv.org/abs/2304.11722) LogicRec: Recommendation with Users' Logical Requirements
+This is a demonstrative implementation of our SIGIR 2023 paper: LogicRec: Recommendation with Users' Logical Requirements ([Proceeding](https://dl.acm.org/doi/abs/10.1145/3539618.3592012), [ArXiv](https://arxiv.org/abs/2304.11722))
 
 ## Abstract
 
