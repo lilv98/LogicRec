@@ -54,7 +54,7 @@ nohup python logicrec.py --verbose 0 --dataset amazon-book --cached 0 --valid_in
 ```
 
 ```powershell
-nohup python logicrec.py --verbose 0 --dataset yelp2018 --cached 0 --valid_interval 5000 --max_steps 1000000 --num_workers 4 --bs 4096 --tolerance 3 --emb_dim 256 >amazon-book.log 2>&1 &
+nohup python logicrec.py --verbose 0 --dataset yelp2018 --cached 0 --valid_interval 5000 --max_steps 1000000 --num_workers 4 --bs 4096 --tolerance 3 --emb_dim 256 >yelp2018.log 2>&1 &
 ```
 
 Please set the argument **cached** to 1 after first run for each dataset.
